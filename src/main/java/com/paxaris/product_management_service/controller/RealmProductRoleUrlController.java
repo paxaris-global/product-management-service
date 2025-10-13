@@ -1,12 +1,15 @@
 package com.paxaris.product_management_service.controller;
 
 import com.paxaris.product_management_service.dto.RoleRequest;
+import com.paxaris.product_management_service.dto.UrlEntry;
 import com.paxaris.product_management_service.entities.RealmProductRole;
 import com.paxaris.product_management_service.service.RealmProductRoleUrlService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @RestController
@@ -37,4 +40,40 @@ public class RealmProductRoleUrlController {
         service.deleteById(id);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/get-urls")
+    public ResponseEntity<List<UrlEntry>> getUrls(@RequestBody RoleRequest request) {
+        System.out.println("=== RoleRequest received from Identity Service ===");
+        System.out.println("Realm Name: " + request.getRealmName());
+        System.out.println("Product Name: " + request.getProductName());
+        System.out.println("Role Name: " + request.getRoleName()); // if multiple roles, this can be comma-separated or list
+        System.out.println("Full object: " + request);
+
+        List<UrlEntry> urls = new ArrayList<>();
+
+        try {
+            // If you already store roles in DB, get URLs for the role
+            if (request.getRoleName() != null) {
+                // Split by comma if multiple roles (optional, if you decide to send all roles in one string)
+                String[] roles = request.getRoleName().split(",");
+                for (String role : roles) {
+                    List<UrlEntry> roleUrls = service.getUrlsByRole(
+                            request.getRealmName(),
+                            request.getProductName(),
+                            role.trim()
+                    );
+                    if (roleUrls != null) {
+                        urls.addAll(roleUrls);
+                    }
+                }
+            }
+            return ResponseEntity.ok(urls);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+
+
 }

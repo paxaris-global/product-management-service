@@ -13,3 +13,10 @@ public class ProjectManagerService {
 	}
 
 }
+
+
+
+
+
+//have to do 3 open api spec (create new project )load on frontend when load all of the uris created automatically
+//		at the time of signup store the uri in the db

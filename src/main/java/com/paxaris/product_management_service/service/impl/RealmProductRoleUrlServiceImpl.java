@@ -4,6 +4,7 @@ import com.paxaris.product_management_service.dto.RoleRequest;
 import com.paxaris.product_management_service.dto.UrlEntry;
 import com.paxaris.product_management_service.entities.RealmProductRole;
 import com.paxaris.product_management_service.entities.RealmProductRoleUrl;
+import com.paxaris.product_management_service.exception.RoleNotFoundException;
 import com.paxaris.product_management_service.repository.RealmProductRoleRepository;
 import com.paxaris.product_management_service.service.RealmProductRoleUrlService;
 import lombok.RequiredArgsConstructor;
@@ -75,4 +76,21 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
     public void deleteById(Long id) {
         roleRepository.deleteById(id);
     }
+
+
+@Override
+public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
+    RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
+            realmName, productName, roleName
+    ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
+
+    List<UrlEntry> urls = new ArrayList<>();
+    for (RealmProductRoleUrl url : role.getUrls()) {
+        urls.add(new UrlEntry(url.getId(), url.getUrl(), url.getUri()));
+    }
+    return urls;
+}
+
+
+
 }

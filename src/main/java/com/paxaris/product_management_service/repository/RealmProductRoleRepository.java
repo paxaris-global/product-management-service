@@ -6,5 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
 
 public interface RealmProductRoleRepository extends JpaRepository<RealmProductRole, Long> {
+    Optional<RealmProductRole> findByRealmNameAndProductNameAndRoleName(String realmName, String productName, String roleName);
 
 }
