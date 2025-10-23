@@ -83,7 +83,7 @@ public List<UrlEntry> getUrlsByRole(String realmName, String productName, String
     RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
             realmName, productName, roleName
     ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
-
+    // reole repository
     List<UrlEntry> urls = new ArrayList<>();
     for (RealmProductRoleUrl url : role.getUrls()) {
         urls.add(new UrlEntry(url.getId(), url.getUrl(), url.getUri()));
