@@ -1,0 +1,14 @@
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\config\SwaggerConfig.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\controller\RealmProductRoleUrlController.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\dto\RoleRequest.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\dto\UrlEntry.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\entities\RealmProductRole.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\entities\RealmProductRoleUrl.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\exception\AccessDeniedException.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\exception\ErrorResponse.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\exception\GlobalExceptionHandler.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\exception\RoleNotFoundException.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\ProjectManagerService.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\repository\RealmProductRoleRepository.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\service\impl\RealmProductRoleUrlServiceImpl.java
+C:\Users\Admin\Downloads\product-management-service\src\main\java\com\paxaris\product_management_service\service\RealmProductRoleUrlService.java

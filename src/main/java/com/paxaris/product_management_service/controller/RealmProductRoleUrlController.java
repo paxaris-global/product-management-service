@@ -46,7 +46,7 @@ public class RealmProductRoleUrlController {
         System.out.println("=== RoleRequest received from Identity Service ===");
         System.out.println("Realm Name: " + request.getRealmName());
         System.out.println("Product Name: " + request.getProductName());
-        System.out.println("Role Name: " + request.getRoleName()); // if multiple roles, this can be comma-separated or list
+        System.out.println("Role Name: " + request.getRoleName());
         System.out.println("Full object: " + request);
 
         List<UrlEntry> urls = new ArrayList<>();
