@@ -52,7 +52,7 @@ public class RealmProductRoleUrlController {
         List<UrlEntry> urls = new ArrayList<>();
 
         try {
-            // If you already store roles in DB, get URLs for the role
+            // If you already store roles in DB, get URL for the role
             if (request.getRoleName() != null) {
                 // Split by comma if multiple roles (optional, if you decide to send all roles in one string)
                 String[] roles = request.getRoleName().split(",");
