@@ -80,7 +80,7 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         roleRepository.deleteById(id);
     }
 
-//get url by role
+//get url by roles
 @Override
 public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
     RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
