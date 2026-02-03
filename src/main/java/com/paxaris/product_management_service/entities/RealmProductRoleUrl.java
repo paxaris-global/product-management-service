@@ -17,6 +17,10 @@ public class RealmProductRoleUrl {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "http_method", length = 10, nullable = false)
+    private HttpMethodType httpMethod;
+
     @Column(name = "base_url", length = 191, nullable = false)
     private String url;
 
@@ -30,5 +34,3 @@ public class RealmProductRoleUrl {
     @EqualsAndHashCode.Exclude
     private RealmProductRole role;
 }
-
-

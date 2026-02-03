@@ -2,6 +2,7 @@ package com.paxaris.product_management_service.service.impl;
 
 import com.paxaris.product_management_service.dto.RoleRequest;
 import com.paxaris.product_management_service.dto.UrlEntry;
+import com.paxaris.product_management_service.entities.HttpMethodType;
 import com.paxaris.product_management_service.entities.RealmProductRole;
 import com.paxaris.product_management_service.entities.RealmProductRoleUrl;
 import com.paxaris.product_management_service.exception.RoleNotFoundException;
@@ -52,10 +53,12 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
                     RealmProductRoleUrl.builder()
                             .url(entry.getUrl())
                             .uri(entry.getUri())
+                            .httpMethod(HttpMethodType.valueOf(entry.getHttpMethod()))
                             .role(role)
                             .build()
             );
         }
+
 
         roleRepository.save(role);
     }
@@ -77,19 +80,24 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         roleRepository.deleteById(id);
     }
 
+    //get url by role
+    @Override
+    public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
+        RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
+                realmName, productName, roleName
+        ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
 
-@Override
-public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
-    RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
-            realmName, productName, roleName
-    ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
-
-    List<UrlEntry> urls = new ArrayList<>();
-    for (RealmProductRoleUrl url : role.getUrls()) {
-        urls.add(new UrlEntry(url.getId(), url.getUrl(), url.getUri()));
+        List<UrlEntry> urls = new ArrayList<>();
+        for (RealmProductRoleUrl url : role.getUrls()) {
+            urls.add(new UrlEntry(
+                    url.getId(),
+                    url.getUrl(),
+                    url.getUri(),
+                    url.getHttpMethod().name()
+            ));
+        }
+        return urls;
     }
-    return urls;
-}
 
 
 
