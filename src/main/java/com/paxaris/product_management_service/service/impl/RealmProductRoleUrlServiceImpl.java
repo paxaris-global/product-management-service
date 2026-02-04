@@ -47,7 +47,7 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
                     .build();
         }
 
-        // Add new urls
+        // Add new url
         for (UrlEntry entry : request.getUrls()) {
             role.getUrls().add(
                     RealmProductRoleUrl.builder()
