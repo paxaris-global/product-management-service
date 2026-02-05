@@ -23,22 +23,25 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
 
     @Override
     public void saveOrUpdateRole(RoleRequest request) {
+
+        Optional<RealmProductRole> existingRole =
+                roleRepository.findByRealmNameAndProductNameAndRoleName(
+                        request.getRealmName(),
+                        request.getProductName(),
+                        request.getRoleName()
+                );
+
         RealmProductRole role;
 
-        if (request.getId() != null) {
-            // Try to find existing role by ID
-            role = roleRepository.findById(request.getId())
-                    .orElseThrow(() -> new RuntimeException("Role not found with id: " + request.getId()));
+        if (existingRole.isPresent()) {
+            role = existingRole.get();
 
-            // update basic fields
-            role.setRealmName(request.getRealmName());
-            role.setProductName(request.getProductName());
-            role.setRoleName(request.getRoleName());
+            // Replace permissions only when sent
+            if (request.getUrls() != null && !request.getUrls().isEmpty()) {
+                role.getUrls().clear();
+            }
 
-            // clear old urls and rebuild
-            role.getUrls().clear();
         } else {
-            // Create new role if no id
             role = RealmProductRole.builder()
                     .realmName(request.getRealmName())
                     .productName(request.getProductName())
@@ -47,21 +50,24 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
                     .build();
         }
 
-        // Add new url
-        for (UrlEntry entry : request.getUrls()) {
-            role.getUrls().add(
-                    RealmProductRoleUrl.builder()
-                            .url(entry.getUrl())
-                            .uri(entry.getUri())
-                            .httpMethod(HttpMethodType.valueOf(entry.getHttpMethod()))
-                            .role(role)
-                            .build()
-            );
-        }
+        // Add new URL mappings if provided
+        if (request.getUrls() != null) {
+            for (UrlEntry entry : request.getUrls()) {
 
+                role.getUrls().add(
+                        RealmProductRoleUrl.builder()
+                                .url(entry.getUrl())
+                                .uri(entry.getUri())
+                                .httpMethod(HttpMethodType.valueOf(entry.getHttpMethod()))
+                                .role(role)
+                                .build()
+                );
+            }
+        }
 
         roleRepository.save(role);
     }
+
 
 
     @Override
