@@ -17,3 +17,4 @@ com\paxaris\product_management_service\dto\UrlEntry$UrlEntryBuilder.class
 com\paxaris\product_management_service\entities\RealmProductRole.class
 com\paxaris\product_management_service\entities\RealmProductRole$RealmProductRoleBuilder.class
 com\paxaris\product_management_service\entities\RealmProductRoleUrl.class
+com\paxaris\product_management_service\repository\RealmProductRoleUrlRepository.class

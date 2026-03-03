@@ -7,6 +7,7 @@ import com.paxaris.product_management_service.entities.RealmProductRole;
 import com.paxaris.product_management_service.entities.RealmProductRoleUrl;
 import com.paxaris.product_management_service.exception.RoleNotFoundException;
 import com.paxaris.product_management_service.repository.RealmProductRoleRepository;
+import com.paxaris.product_management_service.repository.RealmProductRoleUrlRepository;
 import com.paxaris.product_management_service.service.RealmProductRoleUrlService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.util.*;
 public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlService {
 
     private final RealmProductRoleRepository roleRepository;
+    private final RealmProductRoleUrlRepository urlRepository;
 
     @Override
     public void saveOrUpdateRole(RoleRequest request) {
@@ -34,7 +36,7 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         RealmProductRole role;
 
         if (existingRole.isPresent()) {
-            // Role already exists → update basic fields if needed
+            // Role already exists → update basic fields
             role = existingRole.get();
             role.setRealmName(request.getRealmName());
             role.setProductName(request.getProductName());
@@ -49,7 +51,19 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
                     .build();
         }
 
-        roleRepository.save(role);
+        // Save the role first
+        RealmProductRole savedRole = roleRepository.save(role);
+
+        // Save URI and HTTP Method to RealmProductRoleUrl table if provided
+        if (request.getUri() != null && request.getHttpMethod() != null) {
+            RealmProductRoleUrl roleUrl = RealmProductRoleUrl.builder()
+                    .uri(request.getUri())
+                    .httpMethod(HttpMethodType.valueOf(request.getHttpMethod()))
+                    .role(savedRole)
+                    .build();
+
+            urlRepository.save(roleUrl);
+        }
     }
 
 
@@ -70,23 +84,6 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         roleRepository.deleteById(id);
     }
 
-    //get url by role
-//    @Override
-//    public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
-//        RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
-//                realmName, productName, roleName
-//        ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
-//
-//        List<UrlEntry> urls = new ArrayList<>();
-//        for (RealmProductRoleUrl url : role.getUrls()) {
-//            urls.add(new UrlEntry(
-//                    url.getId(),
-//                    url.getUri(),
-//                    url.getHttpMethod().name()
-//            ));
-//        }
-//        return urls;
-//    }
 
 
 
