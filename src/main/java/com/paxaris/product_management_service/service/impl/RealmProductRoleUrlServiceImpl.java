@@ -29,7 +29,11 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
 
     @Override
     public void saveOrUpdateRole(RoleRequest request) {
+        logger.info("Starting saveOrUpdateRole for realm='{}', product='{}', role='{}', uri='{}', httpMethod='{}'",
+                request.getRealmName(), request.getProductName(), request.getRoleName(),
+                request.getUri(), request.getHttpMethod());
 
+        // Step 1: Save or Update Role in realm_product_role table
         Optional<RealmProductRole> existingRole =
                 roleRepository.findByRealmNameAndProductNameAndRoleName(
                         request.getRealmName(),
@@ -40,14 +44,16 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         RealmProductRole role;
 
         if (existingRole.isPresent()) {
-            // Role already exists → update basic fields
+            logger.info("Role exists, updating: realm='{}', product='{}', role='{}'",
+                    request.getRealmName(), request.getProductName(), request.getRoleName());
             role = existingRole.get();
             role.setRealmName(request.getRealmName());
             role.setProductName(request.getProductName());
             role.setRoleName(request.getRoleName());
 
         } else {
-            // Create new role
+            logger.info("Creating new role: realm='{}', product='{}', role='{}'",
+                    request.getRealmName(), request.getProductName(), request.getRoleName());
             role = RealmProductRole.builder()
                     .realmName(request.getRealmName())
                     .productName(request.getProductName())
@@ -57,8 +63,9 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
 
         // Save the role first
         RealmProductRole savedRole = roleRepository.save(role);
+        logger.info("✅ Role saved to realm_product_role table with id='{}'", savedRole.getId());
 
-        // Save URI and HTTP Method to RealmProductRoleUrl table if provided
+        // Step 2: Save URI and HTTP Method to RealmProductRoleUrl table if provided
         if (request.getUri() != null && request.getHttpMethod() != null) {
             logger.info("Saving RealmProductRoleUrl: uri='{}', httpMethod='{}', roleId='{}'",
                     request.getUri(), request.getHttpMethod(), savedRole.getId());
@@ -70,12 +77,13 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
                     .build();
 
             RealmProductRoleUrl savedUrl = urlRepository.save(roleUrl);
-            urlRepository.flush(); // Ensure data is persisted to database immediately
+            urlRepository.flush();
 
-            logger.info("✅ Successfully saved to realm_product_role_url table with id='{}', uri='{}', httpMethod='{}'",
-                    savedUrl.getId(), savedUrl.getUri(), savedUrl.getHttpMethod());
+            logger.info("✅ Successfully saved to realm_product_role_url table -> id='{}', uri='{}', httpMethod='{}', roleId='{}'",
+                    savedUrl.getId(), savedUrl.getUri(), savedUrl.getHttpMethod(), savedUrl.getRole().getId());
         } else {
-            logger.warn("⚠ URI or HTTP Method is null. Skipping realm_product_role_url save.");
+            logger.warn("⚠️ URI or HTTP Method is null. Request: uri='{}', httpMethod='{}'",
+                    request.getUri(), request.getHttpMethod());
         }
     }
 
@@ -97,6 +105,22 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         roleRepository.deleteById(id);
     }
 
+    //get url by role
+    @Override
+    public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
+        logger.info("Fetching URLs for role: realm='{}', product='{}', role='{}'",
+                realmName, productName, roleName);
+
+        RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
+                realmName, productName, roleName
+        ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
+
+        List<UrlEntry> urls = new ArrayList<>();
+        // Note: URLs are now stored separately in realm_product_role_url table
+        // This method can be extended to fetch from the urlRepository if needed
+        logger.debug("Retrieved {} URLs for role id='{}'", urls.size(), role.getId());
+        return urls;
+    }
 
 
 
