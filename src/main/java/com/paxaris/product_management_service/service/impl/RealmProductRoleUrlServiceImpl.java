@@ -10,6 +10,8 @@ import com.paxaris.product_management_service.repository.RealmProductRoleReposit
 import com.paxaris.product_management_service.repository.RealmProductRoleUrlRepository;
 import com.paxaris.product_management_service.service.RealmProductRoleUrlService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,8 @@ import java.util.*;
 @RequiredArgsConstructor
 @Transactional
 public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlService {
+
+    private static final Logger logger = LoggerFactory.getLogger(RealmProductRoleUrlServiceImpl.class);
 
     private final RealmProductRoleRepository roleRepository;
     private final RealmProductRoleUrlRepository urlRepository;
@@ -56,13 +60,22 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
 
         // Save URI and HTTP Method to RealmProductRoleUrl table if provided
         if (request.getUri() != null && request.getHttpMethod() != null) {
+            logger.info("Saving RealmProductRoleUrl: uri='{}', httpMethod='{}', roleId='{}'",
+                    request.getUri(), request.getHttpMethod(), savedRole.getId());
+
             RealmProductRoleUrl roleUrl = RealmProductRoleUrl.builder()
                     .uri(request.getUri())
                     .httpMethod(HttpMethodType.valueOf(request.getHttpMethod()))
                     .role(savedRole)
                     .build();
 
-            urlRepository.save(roleUrl);
+            RealmProductRoleUrl savedUrl = urlRepository.save(roleUrl);
+            urlRepository.flush(); // Ensure data is persisted to database immediately
+
+            logger.info("✅ Successfully saved to realm_product_role_url table with id='{}', uri='{}', httpMethod='{}'",
+                    savedUrl.getId(), savedUrl.getUri(), savedUrl.getHttpMethod());
+        } else {
+            logger.warn("⚠ URI or HTTP Method is null. Skipping realm_product_role_url save.");
         }
     }
 
