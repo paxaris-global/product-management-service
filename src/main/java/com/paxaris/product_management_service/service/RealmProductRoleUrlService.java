@@ -26,6 +26,5 @@ public interface RealmProductRoleUrlService {
 
     void deleteById(Long id);
 
-    List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName);
 
 }

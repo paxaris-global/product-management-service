@@ -34,35 +34,19 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         RealmProductRole role;
 
         if (existingRole.isPresent()) {
+            // Role already exists → update basic fields if needed
             role = existingRole.get();
-
-            // Replace permissions only when sent
-            if (request.getUrls() != null && !request.getUrls().isEmpty()) {
-                role.getUrls().clear();
-            }
+            role.setRealmName(request.getRealmName());
+            role.setProductName(request.getProductName());
+            role.setRoleName(request.getRoleName());
 
         } else {
+            // Create new role
             role = RealmProductRole.builder()
                     .realmName(request.getRealmName())
                     .productName(request.getProductName())
                     .roleName(request.getRoleName())
-                    .urls(new ArrayList<>())
                     .build();
-        }
-
-        // Add new URL mappings if provided
-        if (request.getUrls() != null) {
-            for (UrlEntry entry : request.getUrls()) {
-
-                role.getUrls().add(
-                        RealmProductRoleUrl.builder()
-                                .url(entry.getUrl())
-                                .uri(entry.getUri())
-                                .httpMethod(HttpMethodType.valueOf(entry.getHttpMethod()))
-                                .role(role)
-                                .build()
-                );
-            }
         }
 
         roleRepository.save(role);
@@ -87,23 +71,22 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
     }
 
     //get url by role
-    @Override
-    public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
-        RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
-                realmName, productName, roleName
-        ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
-
-        List<UrlEntry> urls = new ArrayList<>();
-        for (RealmProductRoleUrl url : role.getUrls()) {
-            urls.add(new UrlEntry(
-                    url.getId(),
-                    url.getUrl(),
-                    url.getUri(),
-                    url.getHttpMethod().name()
-            ));
-        }
-        return urls;
-    }
+//    @Override
+//    public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
+//        RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
+//                realmName, productName, roleName
+//        ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
+//
+//        List<UrlEntry> urls = new ArrayList<>();
+//        for (RealmProductRoleUrl url : role.getUrls()) {
+//            urls.add(new UrlEntry(
+//                    url.getId(),
+//                    url.getUri(),
+//                    url.getHttpMethod().name()
+//            ));
+//        }
+//        return urls;
+//    }
 
 
 

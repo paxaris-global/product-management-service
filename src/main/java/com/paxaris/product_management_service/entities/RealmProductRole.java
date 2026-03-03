@@ -26,6 +26,5 @@ public class RealmProductRole {
     @Column(name = "role_name", length = 50, nullable = false)
     private String roleName;
 
-    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    private List<RealmProductRoleUrl> urls;
+
 }

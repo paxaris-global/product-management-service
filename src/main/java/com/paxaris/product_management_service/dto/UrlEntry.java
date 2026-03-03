@@ -9,7 +9,7 @@ import lombok.*;
 @Builder
 public class UrlEntry {
     private Long id;  // null → new URL
-    private String url;
+
     private String uri;
     private String httpMethod;
 }

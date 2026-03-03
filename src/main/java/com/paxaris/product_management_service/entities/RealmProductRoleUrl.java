@@ -21,8 +21,7 @@ public class RealmProductRoleUrl {
     @Column(name = "http_method", length = 10, nullable = false)
     private HttpMethodType httpMethod;
 
-    @Column(name = "base_url", length = 191, nullable = false)
-    private String url;
+
 
     @Column(name = "uri", length = 191, nullable = false)
     private String uri;
