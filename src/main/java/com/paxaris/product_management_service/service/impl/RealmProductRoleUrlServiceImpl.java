@@ -105,23 +105,6 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
         roleRepository.deleteById(id);
     }
 
-    //get url by role
-    @Override
-    public List<UrlEntry> getUrlsByRole(String realmName, String productName, String roleName) {
-        logger.info("Fetching URLs for role: realm='{}', product='{}', role='{}'",
-                realmName, productName, roleName);
-
-        RealmProductRole role = roleRepository.findByRealmNameAndProductNameAndRoleName(
-                realmName, productName, roleName
-        ).orElseThrow(() -> new RoleNotFoundException(realmName, productName, roleName));
-
-        List<UrlEntry> urls = new ArrayList<>();
-        // Note: URLs are now stored separately in realm_product_role_url table
-        // This method can be extended to fetch from the urlRepository if needed
-        logger.debug("Retrieved {} URLs for role id='{}'", urls.size(), role.getId());
-        return urls;
-    }
-
 
 
 }
