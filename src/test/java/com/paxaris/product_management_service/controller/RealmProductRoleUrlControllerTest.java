@@ -46,6 +46,68 @@ class RealmProductRoleUrlControllerTest {
     }
 
     @Test
+    void saveOrUpdateWithUriAndHttpMethod() {
+        RoleRequest request = RoleRequest.builder()
+                .realmName("demo")
+                .productName("pm")
+                .roleName("admin")
+                .uri("/api/products")
+                .httpMethod("GET")
+                .build();
+
+        doNothing().when(service).saveOrUpdateRole(request);
+
+        ResponseEntity<Void> response = controller.saveOrUpdate(request);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        verify(service, times(1)).saveOrUpdateRole(request);
+    }
+
+    @Test
+    void saveOrUpdateWithMultipleHttpMethods() {
+        // Test POST request
+        RoleRequest postRequest = RoleRequest.builder()
+                .realmName("demo")
+                .productName("pm")
+                .roleName("admin")
+                .uri("/api/products")
+                .httpMethod("POST")
+                .build();
+
+        doNothing().when(service).saveOrUpdateRole(postRequest);
+
+        ResponseEntity<Void> response = controller.saveOrUpdate(postRequest);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+
+        // Test PUT request
+        RoleRequest putRequest = RoleRequest.builder()
+                .realmName("demo")
+                .productName("pm")
+                .roleName("admin")
+                .uri("/api/products/123")
+                .httpMethod("PUT")
+                .build();
+
+        doNothing().when(service).saveOrUpdateRole(putRequest);
+        response = controller.saveOrUpdate(putRequest);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+
+        // Test DELETE request
+        RoleRequest deleteRequest = RoleRequest.builder()
+                .realmName("demo")
+                .productName("pm")
+                .roleName("admin")
+                .uri("/api/products/123")
+                .httpMethod("DELETE")
+                .build();
+
+        doNothing().when(service).saveOrUpdateRole(deleteRequest);
+        response = controller.saveOrUpdate(deleteRequest);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+    }
+
+    @Test
     void getAllReturnsServiceData() {
         RealmProductRole role = RealmProductRole.builder()
                 .id(1L)
@@ -74,5 +136,26 @@ class RealmProductRoleUrlControllerTest {
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(service, times(1)).deleteById(id);
+    }
+
+    @Test
+    void getByIdReturnsRole() {
+        Long id = 1L;
+        RealmProductRole role = RealmProductRole.builder()
+                .id(id)
+                .realmName("demo")
+                .productName("pm")
+                .roleName("admin")
+                .build();
+
+        when(service.getById(id)).thenReturn(role);
+
+        ResponseEntity<RealmProductRole> response = controller.getById(id);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals("admin", response.getBody().getRoleName());
+        assertEquals("demo", response.getBody().getRealmName());
+        verify(service, times(1)).getById(id);
     }
 }

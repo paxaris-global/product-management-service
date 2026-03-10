@@ -27,7 +27,11 @@ public class ProvisioningController {
      * @param zipFile  ZIP file containing project contents
      * @return Response with repository details
      */
-    @PostMapping("/upload")
+    /**
+     * Enhanced endpoint for provisioning with better multipart handling.
+     * Recommended for use with RestTemplate from other services.
+     */
+    @PostMapping(value = "/upload", consumes = "multipart/form-data")
     public ResponseEntity<Map<String, String>> provisionRepository(
             @RequestParam("repoName") String repoName,
             @RequestParam("zipFile") MultipartFile zipFile) {
@@ -35,10 +39,13 @@ public class ProvisioningController {
         log.info("Received provisioning request for repository: {}", repoName);
 
         try {
-            if (zipFile.isEmpty()) {
+            if (zipFile == null || zipFile.isEmpty()) {
+                log.warn("ZIP file is empty or null for repo: {}", repoName);
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "ZIP file is empty"));
+                        .body(Map.of("error", "ZIP file is empty or missing"));
             }
+
+            log.info("Processing ZIP file: {}, size: {} bytes", zipFile.getOriginalFilename(), zipFile.getSize());
 
             Path tempPath = provisioningService.provision(repoName, zipFile);
 

@@ -1,3 +1,4 @@
+D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\config\MultipartConfig.java
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\config\SwaggerConfig.java
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\controller\ProvisioningController.java
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\controller\RealmProductRoleUrlController.java
@@ -15,4 +16,5 @@ D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\produc
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\repository\RealmProductRoleUrlRepository.java
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\service\impl\RealmProductRoleUrlServiceImpl.java
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\service\ProvisioningService.java
+D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\service\ProvisioningServiceHelper.java
 D:\paxo_base_project\product-management-service\src\main\java\com\paxaris\product_management_service\service\RealmProductRoleUrlService.java
