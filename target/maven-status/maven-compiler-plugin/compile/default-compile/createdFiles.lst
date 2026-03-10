@@ -1,6 +1,8 @@
 com\paxaris\product_management_service\exception\AccessDeniedException.class
 com\paxaris\product_management_service\dto\RoleRequest$RoleRequestBuilder.class
+com\paxaris\product_management_service\service\ProvisioningService.class
 com\paxaris\product_management_service\exception\RoleNotFoundException.class
+com\paxaris\product_management_service\controller\ProvisioningController.class
 com\paxaris\product_management_service\repository\RealmProductRoleRepository.class
 com\paxaris\product_management_service\service\impl\RealmProductRoleUrlServiceImpl.class
 com\paxaris\product_management_service\exception\ErrorResponse.class

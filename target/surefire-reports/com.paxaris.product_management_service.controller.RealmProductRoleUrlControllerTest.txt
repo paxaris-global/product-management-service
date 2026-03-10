@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.paxaris.product_management_service.controller.RealmProductRoleUrlControllerTest
+-------------------------------------------------------------------------------
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 2.843 s -- in com.paxaris.product_management_service.controller.RealmProductRoleUrlControllerTest
