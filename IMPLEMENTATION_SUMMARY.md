@@ -68,7 +68,7 @@ Total Tests: 10
 
 ### 1. Set Environment Variables
 ```bash
-export GITHUB_TOKEN=ghp_your_token_here
+export GITHUB_TOKEN=<github-token>
 export GITHUB_ORG=your-organization-name
 ```
 

@@ -30,8 +30,8 @@ public class ProvisioningService {
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
             @Value("${github.org}") String githubOrg,
-            @Value("${github.api.base-url:https://api.github.com}") String githubApiBaseUrl,
-            @Value("${provisioning.default-admin-username:admin}") String defaultAdminUsername) {
+            @Value("${github.api.base-url}") String githubApiBaseUrl,
+            @Value("${provisioning.default-admin-username}") String defaultAdminUsername) {
         this.githubToken = githubToken;
         this.githubOrg = githubOrg;
         this.githubApiBaseUrl = githubApiBaseUrl;
@@ -58,9 +58,9 @@ public class ProvisioningService {
         return tempDir;
     }
 
-    public String generateRepositoryName(String realmName, String adminUsername, String clientName) {
+    public String generateRepositoryName(String realmName, String adminUsername, String productName) {
         String adminPart = adminUsername != null ? adminUsername : defaultAdminUsername;
-        return String.format("%s-%s-%s", realmName, adminPart, clientName).toLowerCase();
+        return String.format("%s-%s-%s", realmName, adminPart, productName).toLowerCase();
     }
 
     // --------------------------------------------------

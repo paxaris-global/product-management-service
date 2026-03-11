@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/project/roles")
+@RequestMapping({"/project/roles", "/api/v1/project/roles"})
 @RequiredArgsConstructor
 @Tag(name = "Role URLs", description = "Role to URL mapping APIs")
 public class RealmProductRoleUrlController {

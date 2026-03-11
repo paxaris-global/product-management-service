@@ -10,13 +10,13 @@
     @Configuration
     public class SwaggerConfig {
 
-        @Value("${springdoc.info.title:Product Management Service API}")
+        @Value("${springdoc.info.title}")
         private String apiTitle;
 
-        @Value("${springdoc.info.version:1.0.0}")
+        @Value("${springdoc.info.version}")
         private String apiVersion;
 
-        @Value("${springdoc.info.description:APIs for role URL management and repository provisioning}")
+        @Value("${springdoc.info.description}")
         private String apiDescription;
 
         @Bean

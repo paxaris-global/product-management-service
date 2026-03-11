@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -18,7 +19,7 @@ import java.util.Map;
 
 @Slf4j
 @RestController
-@RequestMapping("/project/provision")
+@RequestMapping({"/project/provision", "/api/v1/project/provision"})
 @RequiredArgsConstructor
 @Tag(name = "Provisioning", description = "Repository provisioning APIs")
 public class ProvisioningController {
@@ -52,8 +53,7 @@ public class ProvisioningController {
         try {
             if (zipFile == null || zipFile.isEmpty()) {
                 log.warn("ZIP file is empty or null for repo: {}", repoName);
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "ZIP file is empty or missing"));
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ZIP file is empty or missing");
             }
 
             log.info("Processing ZIP file: {}, size: {} bytes", zipFile.getOriginalFilename(), zipFile.getSize());
@@ -74,13 +74,13 @@ public class ProvisioningController {
 
         } catch (IllegalStateException e) {
             log.error("❌ Configuration error: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Configuration error: " + e.getMessage()));
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Configuration error: " + e.getMessage(), e);
 
         } catch (Exception e) {
             log.error("❌ Failed to provision repository: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Failed to provision repository: " + e.getMessage()));
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to provision repository: " + e.getMessage(), e);
         }
     }
 
@@ -89,19 +89,19 @@ public class ProvisioningController {
      *
      * @param realmName    Realm name
      * @param adminUsername Admin username
-     * @param clientName   Client/product name
+         * @param productName  Product name
      * @return Generated repository name
      */
     @GetMapping("/generate-repo-name")
-    @Operation(summary = "Generate repository name", description = "Builds a normalized repository name from realm, admin user, and client")
+        @Operation(summary = "Generate repository name", description = "Builds a normalized repository name from realm, admin user, and product")
     @ApiResponse(responseCode = "200", description = "Repository name generated")
     public ResponseEntity<Map<String, String>> generateRepoName(
             @RequestParam String realmName,
             @RequestParam(required = false) String adminUsername,
-            @RequestParam String clientName) {
+            @RequestParam String productName) {
 
         String repoName = provisioningService.generateRepositoryName(
-                realmName, adminUsername, clientName);
+            realmName, adminUsername, productName);
 
         return ResponseEntity.ok(Map.of("repositoryName", repoName));
     }

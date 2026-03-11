@@ -28,7 +28,7 @@ github.org=${GITHUB_ORG}
 ### Example Configuration
 
 ```bash
-export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export GITHUB_TOKEN=<github-token>
 export GITHUB_ORG=your-organization-name
 ```
 

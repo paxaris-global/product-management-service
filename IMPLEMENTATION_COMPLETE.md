@@ -371,7 +371,7 @@ mvn test -Dtest=RealmProductRoleUrlControllerTest
 
 ### Environment Variables (GitHub Provisioning)
 ```bash
-GITHUB_TOKEN=ghp_xxxxx...
+GITHUB_TOKEN=<github-token>
 GITHUB_ORG=your-organization
 ```
 
@@ -384,8 +384,8 @@ spring.servlet.multipart.max-request-size=100MB
 ### Database Connection
 ```properties
 SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/pms_db
-spring.datasource.username=root
-spring.datasource.password=root
+SPRING_DATASOURCE_USERNAME=<db-username>
+SPRING_DATASOURCE_PASSWORD=<db-password>
 ```
 
 ---

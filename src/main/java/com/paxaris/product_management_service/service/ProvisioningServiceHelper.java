@@ -70,7 +70,7 @@ public class ProvisioningServiceHelper {
 
             // Build URL
             String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                    .path("/project/provision/upload")
+                    .path("/api/v1/project/provision/upload")
                     .toUriString();
 
             log.info("Sending POST request to: {}", url);
@@ -117,7 +117,7 @@ public class ProvisioningServiceHelper {
 
             // Build URL
             String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
-                    .path("/project/provision/upload")
+                    .path("/api/v1/project/provision/upload")
                     .toUriString();
 
             log.info("Sending POST request to: {}", url);
