@@ -1,6 +1,10 @@
 package com.paxaris.product_management_service.controller;
 
 import com.paxaris.product_management_service.service.ProvisioningService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -16,6 +20,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/project/provision")
 @RequiredArgsConstructor
+@Tag(name = "Provisioning", description = "Repository provisioning APIs")
 public class ProvisioningController {
 
     private final ProvisioningService provisioningService;
@@ -32,6 +37,12 @@ public class ProvisioningController {
      * Recommended for use with RestTemplate from other services.
      */
     @PostMapping(value = "/upload", consumes = "multipart/form-data")
+        @Operation(summary = "Provision repository", description = "Creates a GitHub repository and uploads ZIP contents in one operation")
+        @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Repository provisioned successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid input"),
+            @ApiResponse(responseCode = "500", description = "Provisioning failed")
+        })
     public ResponseEntity<Map<String, String>> provisionRepository(
             @RequestParam("repoName") String repoName,
             @RequestParam("zipFile") MultipartFile zipFile) {
@@ -82,12 +93,14 @@ public class ProvisioningController {
      * @return Generated repository name
      */
     @GetMapping("/generate-repo-name")
+    @Operation(summary = "Generate repository name", description = "Builds a normalized repository name from realm, admin user, and client")
+    @ApiResponse(responseCode = "200", description = "Repository name generated")
     public ResponseEntity<Map<String, String>> generateRepoName(
             @RequestParam String realmName,
             @RequestParam(required = false) String adminUsername,
             @RequestParam String clientName) {
 
-        String repoName = ProvisioningService.generateRepositoryName(
+        String repoName = provisioningService.generateRepositoryName(
                 realmName, adminUsername, clientName);
 
         return ResponseEntity.ok(Map.of("repositoryName", repoName));
@@ -99,6 +112,8 @@ public class ProvisioningController {
      * @return Configuration status
      */
     @GetMapping("/health")
+    @Operation(summary = "Provisioning health", description = "Returns provisioning configuration readiness")
+    @ApiResponse(responseCode = "200", description = "Provisioning service healthy")
     public ResponseEntity<Map<String, Object>> healthCheck() {
         Map<String, Object> status = new HashMap<>();
 

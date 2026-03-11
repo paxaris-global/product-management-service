@@ -23,13 +23,19 @@ public class ProvisioningService {
 
     private final String githubToken;
     private final String githubOrg;
+    private final String githubApiBaseUrl;
+    private final String defaultAdminUsername;
     private final ObjectMapper objectMapper;
 
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
-            @Value("${github.org}") String githubOrg) {
+            @Value("${github.org}") String githubOrg,
+            @Value("${github.api.base-url:https://api.github.com}") String githubApiBaseUrl,
+            @Value("${provisioning.default-admin-username:admin}") String defaultAdminUsername) {
         this.githubToken = githubToken;
         this.githubOrg = githubOrg;
+        this.githubApiBaseUrl = githubApiBaseUrl;
+        this.defaultAdminUsername = defaultAdminUsername;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -52,8 +58,8 @@ public class ProvisioningService {
         return tempDir;
     }
 
-    public static String generateRepositoryName(String realmName, String adminUsername, String clientName) {
-        String adminPart = adminUsername != null ? adminUsername : "admin";
+    public String generateRepositoryName(String realmName, String adminUsername, String clientName) {
+        String adminPart = adminUsername != null ? adminUsername : defaultAdminUsername;
         return String.format("%s-%s-%s", realmName, adminPart, clientName).toLowerCase();
     }
 
@@ -63,7 +69,7 @@ public class ProvisioningService {
     public void createRepo(String repoName) throws IOException {
         validateConfig();
 
-        String apiUrl = "https://api.github.com/orgs/" + githubOrg + "/repos";
+        String apiUrl = githubApiBaseUrl + "/orgs/" + githubOrg + "/repos";
 
         // auto_init: true is required to create the 'main' branch so we can update it
         // later
@@ -109,7 +115,7 @@ public class ProvisioningService {
 
         // 2. Create a Git Tree
         Map<String, Object> treeMap = Map.of("tree", treeEntries);
-        JsonNode treeRes = sendRequest("POST", "https://api.github.com/repos/" + githubOrg + "/" + repo + "/git/trees",
+        JsonNode treeRes = sendRequest("POST", githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/trees",
                 objectMapper.writeValueAsString(treeMap));
         String treeSha = treeRes.get("sha").asText();
 
@@ -118,13 +124,13 @@ public class ProvisioningService {
                 "message", "Initial project upload",
                 "tree", treeSha);
         JsonNode commitRes = sendRequest("POST",
-                "https://api.github.com/repos/" + githubOrg + "/" + repo + "/git/commits",
+            githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/commits",
                 objectMapper.writeValueAsString(commitMap));
         String commitSha = commitRes.get("sha").asText();
 
         // 4. Update Main Branch Reference
         Map<String, Object> refMap = Map.of("sha", commitSha, "force", true);
-        sendRequest("PATCH", "https://api.github.com/repos/" + githubOrg + "/" + repo + "/git/refs/heads/main",
+        sendRequest("PATCH", githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/refs/heads/main",
                 objectMapper.writeValueAsString(refMap));
 
         log.info("Successfully pushed all files to {}/{} in a single commit: {}", githubOrg, repo, commitSha);

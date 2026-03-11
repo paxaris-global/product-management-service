@@ -16,7 +16,7 @@ class ProvisioningServiceTest {
     @BeforeEach
     void setUp() {
         // Initialize with test configuration
-        provisioningService = new ProvisioningService("test-token", "test-org");
+        provisioningService = new ProvisioningService("test-token", "test-org", "https://api.github.com", "admin");
     }
 
     @Test
@@ -31,7 +31,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testGenerateRepositoryName() {
-        String repoName = ProvisioningService.generateRepositoryName(
+        String repoName = provisioningService.generateRepositoryName(
                 "demo-realm", "john", "my-app");
 
         assertEquals("demo-realm-john-my-app", repoName);
@@ -39,7 +39,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testGenerateRepositoryNameWithNullAdmin() {
-        String repoName = ProvisioningService.generateRepositoryName(
+        String repoName = provisioningService.generateRepositoryName(
                 "demo-realm", null, "my-app");
 
         assertEquals("demo-realm-admin-my-app", repoName);
@@ -47,7 +47,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testGenerateRepositoryNameConvertsToLowercase() {
-        String repoName = ProvisioningService.generateRepositoryName(
+        String repoName = provisioningService.generateRepositoryName(
                 "Demo-Realm", "John", "My-App");
 
         assertEquals("demo-realm-john-my-app", repoName);
@@ -70,7 +70,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testValidateConfigWithMissingToken() {
-        ProvisioningService invalidService = new ProvisioningService("", "test-org");
+        ProvisioningService invalidService = new ProvisioningService("", "test-org", "https://api.github.com", "admin");
 
         MockMultipartFile dummyFile = new MockMultipartFile(
                 "file",
@@ -86,7 +86,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testValidateConfigWithMissingOrg() {
-        ProvisioningService invalidService = new ProvisioningService("test-token", "");
+        ProvisioningService invalidService = new ProvisioningService("test-token", "", "https://api.github.com", "admin");
 
         MockMultipartFile dummyFile = new MockMultipartFile(
                 "file",

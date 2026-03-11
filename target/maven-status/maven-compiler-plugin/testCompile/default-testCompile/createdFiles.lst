@@ -1,3 +1,4 @@
 com\paxaris\product_management_service\ProjectManagerServiceApplicationTests.class
+com\paxaris\product_management_service\config\CorrelationIdFilterTest.class
 com\paxaris\product_management_service\service\ProvisioningServiceTest.class
 com\paxaris\product_management_service\controller\RealmProductRoleUrlControllerTest.class

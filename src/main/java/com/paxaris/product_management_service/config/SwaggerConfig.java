@@ -2,6 +2,7 @@
 
     import io.swagger.v3.oas.models.OpenAPI;
     import io.swagger.v3.oas.models.info.Info;
+    import org.springframework.beans.factory.annotation.Value;
     import org.springframework.context.annotation.Bean;
     import org.springframework.context.annotation.Configuration;
     import org.springframework.web.client.RestTemplate;
@@ -9,13 +10,22 @@
     @Configuration
     public class SwaggerConfig {
 
+        @Value("${springdoc.info.title:Product Management Service API}")
+        private String apiTitle;
+
+        @Value("${springdoc.info.version:1.0.0}")
+        private String apiVersion;
+
+        @Value("${springdoc.info.description:APIs for role URL management and repository provisioning}")
+        private String apiDescription;
+
         @Bean
         public OpenAPI customOpenAPI() {
             return new OpenAPI()
                     .info(new Info()
-                            .title("Your API Title")
-                            .version("1.0")
-                            .description("A detailed description of your API."));
+                    .title(apiTitle)
+                    .version(apiVersion)
+                    .description(apiDescription));
         }
         @Bean
         public RestTemplate restTemplate() {
