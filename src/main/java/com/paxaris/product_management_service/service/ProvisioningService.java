@@ -10,22 +10,27 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.Base64;
 import java.util.*;
 
 @Slf4j
 @Service
 public class ProvisioningService {
 
+    private static final int TREE_BATCH_SIZE = 200;
+
     private final String githubToken;
     private final String githubOrg;
     private final String githubApiBaseUrl;
     private final String defaultAdminUsername;
     private final ObjectMapper objectMapper;
+    private final HttpClient httpClient;
 
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
@@ -37,6 +42,7 @@ public class ProvisioningService {
         this.githubApiBaseUrl = githubApiBaseUrl;
         this.defaultAdminUsername = defaultAdminUsername;
         this.objectMapper = new ObjectMapper();
+        this.httpClient = HttpClient.newHttpClient();
     }
 
     public String getGithubToken() {
@@ -48,8 +54,8 @@ public class ProvisioningService {
     }
 
     /**
-     * Entry point for provisioning: Creates repo, unzips file, and uploads in one
-     * commit.
+     * Entry point for provisioning: Creates repo, unzips file, and uploads in
+     * incremental commits to avoid large Git tree payloads.
      */
     public Path provision(String repoName, MultipartFile zipFile) throws Exception {
         createRepo(repoName);
@@ -85,86 +91,173 @@ public class ProvisioningService {
     }
 
     // --------------------------------------------------
-    // UPLOAD FILES (THE "ONE COMMIT" LOGIC)
+    // UPLOAD FILES (BATCHED COMMITS)
     // --------------------------------------------------
     public void uploadDirectoryToGitHub(Path root, String repo) throws Exception {
-        List<Map<String, Object>> treeEntries = new ArrayList<>();
+        List<FileBlobRef> fileRefs = new ArrayList<>();
 
-        // 1. Walk the directory and prepare Tree Entries
+        // 1) Walk files and create blobs in GitHub
         Files.walk(root)
                 .filter(Files::isRegularFile)
                 .forEach(file -> {
                     try {
                         String path = root.relativize(file).toString().replace("\\", "/");
                         byte[] content = Files.readAllBytes(file);
-
-                        Map<String, Object> entry = new HashMap<>();
-                        entry.put("path", path);
-                        entry.put("mode", "100644");
-                        entry.put("type", "blob");
-                        entry.put("content", new String(content, StandardCharsets.UTF_8));
-
-                        treeEntries.add(entry);
+                        String blobSha = createBlob(repo, content);
+                        fileRefs.add(new FileBlobRef(path, blobSha));
                     } catch (IOException e) {
                         throw new RuntimeException("Error reading file for GitHub upload: " + file, e);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Error creating GitHub blob for file: " + file, e);
                     }
                 });
 
-        if (treeEntries.isEmpty())
+        if (fileRefs.isEmpty()) {
             return;
+        }
 
-        // 2. Create a Git Tree
-        Map<String, Object> treeMap = Map.of("tree", treeEntries);
-        JsonNode treeRes = sendRequest("POST", githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/trees",
-                objectMapper.writeValueAsString(treeMap));
-        String treeSha = treeRes.get("sha").asText();
+        // 2) Read current main branch state to append commits incrementally
+        BranchState branchState = fetchMainBranchState(repo);
+        String currentCommitSha = branchState.commitSha();
+        String currentTreeSha = branchState.treeSha();
 
-        // 3. Create a Commit
-        Map<String, Object> commitMap = Map.of(
-                "message", "Initial project upload",
-                "tree", treeSha);
-        JsonNode commitRes = sendRequest("POST",
-            githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/commits",
-                objectMapper.writeValueAsString(commitMap));
-        String commitSha = commitRes.get("sha").asText();
+        // 3) Build commits in batches to keep tree payload small
+        int totalBatches = (int) Math.ceil(fileRefs.size() / (double) TREE_BATCH_SIZE);
+        for (int start = 0, batch = 1; start < fileRefs.size(); start += TREE_BATCH_SIZE, batch++) {
+            int end = Math.min(start + TREE_BATCH_SIZE, fileRefs.size());
+            List<Map<String, Object>> treeEntries = new ArrayList<>(end - start);
 
-        // 4. Update Main Branch Reference
-        Map<String, Object> refMap = Map.of("sha", commitSha, "force", true);
-        sendRequest("PATCH", githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/refs/heads/main",
-                objectMapper.writeValueAsString(refMap));
+            for (int i = start; i < end; i++) {
+                FileBlobRef ref = fileRefs.get(i);
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("path", ref.path());
+                entry.put("mode", "100644");
+                entry.put("type", "blob");
+                entry.put("sha", ref.sha());
+                treeEntries.add(entry);
+            }
 
-        log.info("Successfully pushed all files to {}/{} in a single commit: {}", githubOrg, repo, commitSha);
+            Map<String, Object> treeMap = Map.of(
+                    "base_tree", currentTreeSha,
+                    "tree", treeEntries
+            );
+            JsonNode treeRes = sendRequest(
+                    "POST",
+                    githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/trees",
+                    objectMapper.writeValueAsString(treeMap)
+            );
+            String newTreeSha = treeRes.get("sha").asText();
+
+            Map<String, Object> commitMap = Map.of(
+                    "message", "Provision upload batch " + batch + "/" + totalBatches,
+                    "tree", newTreeSha,
+                    "parents", List.of(currentCommitSha)
+            );
+            JsonNode commitRes = sendRequest(
+                    "POST",
+                    githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/commits",
+                    objectMapper.writeValueAsString(commitMap)
+            );
+
+            currentCommitSha = commitRes.get("sha").asText();
+            currentTreeSha = newTreeSha;
+        }
+
+        // 4) Move main branch to the latest commit
+        Map<String, Object> refMap = Map.of("sha", currentCommitSha, "force", false);
+        sendRequest(
+                "PATCH",
+                githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/refs/heads/main",
+                objectMapper.writeValueAsString(refMap)
+        );
+
+        log.info("Successfully pushed {} files to {}/{} in {} commit batches. Head commit: {}",
+                fileRefs.size(), githubOrg, repo, totalBatches, currentCommitSha);
+    }
+
+    private BranchState fetchMainBranchState(String repo) throws IOException {
+        JsonNode refRes = sendRequest(
+                "GET",
+                githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/ref/heads/main",
+                null
+        );
+        String headCommitSha = refRes.path("object").path("sha").asText();
+        if (headCommitSha == null || headCommitSha.isBlank()) {
+            throw new RuntimeException("Failed to resolve main branch HEAD for repo: " + repo);
+        }
+
+        JsonNode commitRes = sendRequest(
+                "GET",
+                githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/commits/" + headCommitSha,
+                null
+        );
+        String headTreeSha = commitRes.path("tree").path("sha").asText();
+        if (headTreeSha == null || headTreeSha.isBlank()) {
+            throw new RuntimeException("Failed to resolve main branch tree for repo: " + repo);
+        }
+
+        return new BranchState(headCommitSha, headTreeSha);
+    }
+
+    private String createBlob(String repo, byte[] content) throws IOException {
+        String encoded = Base64.getEncoder().encodeToString(content);
+        Map<String, Object> blobBody = Map.of(
+                "content", encoded,
+                "encoding", "base64"
+        );
+
+        JsonNode blobRes = sendRequest(
+                "POST",
+                githubApiBaseUrl + "/repos/" + githubOrg + "/" + repo + "/git/blobs",
+                objectMapper.writeValueAsString(blobBody)
+        );
+        String blobSha = blobRes.path("sha").asText();
+        if (blobSha == null || blobSha.isBlank()) {
+            throw new RuntimeException("GitHub blob SHA missing for repository: " + repo);
+        }
+        return blobSha;
+    }
+
+    private record BranchState(String commitSha, String treeSha) {
+    }
+
+    private record FileBlobRef(String path, String sha) {
     }
 
     // --------------------------------------------------
     // GENERIC HTTP HELPER
     // --------------------------------------------------
     private JsonNode sendRequest(String method, String urlStr, String jsonBody) throws IOException {
-        URL url = new URL(urlStr);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod(method);
-        conn.setRequestProperty("Authorization", "Bearer " + githubToken);
-        conn.setRequestProperty("Accept", "application/vnd.github+json");
-        conn.setRequestProperty("Content-Type", "application/json");
-        conn.setDoOutput(true);
+        HttpRequest.BodyPublisher bodyPublisher = jsonBody == null
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8);
 
-        if (jsonBody != null) {
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(jsonBody.getBytes(StandardCharsets.UTF_8));
-            }
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(urlStr))
+                .header("Authorization", "Bearer " + githubToken)
+                .header("Accept", "application/vnd.github+json")
+                .header("Content-Type", "application/json")
+                .method(method, bodyPublisher)
+                .build();
+
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("HTTP request interrupted: " + method + " " + urlStr, e);
         }
 
-        int responseCode = conn.getResponseCode();
+        int responseCode = response.statusCode();
+        String responseBody = response.body();
         if (responseCode >= 300) {
-            String errorResponse = "";
-            try (java.io.InputStream is = conn.getErrorStream()) {
-                if (is != null)
-                    errorResponse = new String(is.readAllBytes());
-            }
-            throw new RuntimeException("GitHub API error (" + responseCode + ") at " + urlStr + ": " + errorResponse);
+            throw new RuntimeException("GitHub API error (" + responseCode + ") at " + urlStr + ": " + responseBody);
         }
 
-        return objectMapper.readTree(conn.getInputStream());
+        if (responseBody == null || responseBody.isBlank()) {
+            return objectMapper.createObjectNode();
+        }
+        return objectMapper.readTree(responseBody);
     }
 
     private void validateConfig() {

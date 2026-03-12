@@ -74,7 +74,7 @@ public class ProvisioningController {
 
         } catch (IllegalStateException e) {
             log.error("❌ Configuration error: {}", e.getMessage());
-                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "Configuration error: " + e.getMessage(), e);
 
         } catch (Exception e) {
