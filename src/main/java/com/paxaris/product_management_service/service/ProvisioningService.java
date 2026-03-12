@@ -24,6 +24,10 @@ import java.util.*;
 public class ProvisioningService {
 
     private static final int TREE_BATCH_SIZE = 200;
+    private static final long MAX_GITHUB_BLOB_BYTES = 50L * 1024 * 1024;
+    private static final List<String> SKIPPED_PATH_SEGMENTS = List.of(
+            "/.git/", "/node_modules/", "/target/", "/build/", "/dist/", "/out/", "/.idea/", "/.vscode/"
+    );
 
     private final String githubToken;
     private final String githubOrg;
@@ -95,6 +99,7 @@ public class ProvisioningService {
     // --------------------------------------------------
     public void uploadDirectoryToGitHub(Path root, String repo) throws Exception {
         List<FileBlobRef> fileRefs = new ArrayList<>();
+        List<String> skippedFiles = new ArrayList<>();
 
         // 1) Walk files and create blobs in GitHub
         Files.walk(root)
@@ -102,7 +107,21 @@ public class ProvisioningService {
                 .forEach(file -> {
                     try {
                         String path = root.relativize(file).toString().replace("\\", "/");
+
+                        if (shouldSkipPath(path)) {
+                            skippedFiles.add(path);
+                            return;
+                        }
+
                         byte[] content = Files.readAllBytes(file);
+
+                        if (content.length > MAX_GITHUB_BLOB_BYTES) {
+                            skippedFiles.add(path);
+                            log.warn("Skipping file '{}' ({} bytes) because it exceeds GitHub blob safety limit ({} bytes)",
+                                    path, content.length, MAX_GITHUB_BLOB_BYTES);
+                            return;
+                        }
+
                         String blobSha = createBlob(repo, content);
                         fileRefs.add(new FileBlobRef(path, blobSha));
                     } catch (IOException e) {
@@ -113,7 +132,14 @@ public class ProvisioningService {
                 });
 
         if (fileRefs.isEmpty()) {
+            if (!skippedFiles.isEmpty()) {
+                throw new RuntimeException("No eligible source files found to upload; all files were filtered as generated or oversized artifacts");
+            }
             return;
+        }
+
+        if (!skippedFiles.isEmpty()) {
+            log.info("Skipped {} generated/oversized files before GitHub upload", skippedFiles.size());
         }
 
         // 2) Read current main branch state to append commits incrementally
@@ -222,6 +248,16 @@ public class ProvisioningService {
     }
 
     private record FileBlobRef(String path, String sha) {
+    }
+
+    private boolean shouldSkipPath(String relativePath) {
+        String normalized = "/" + relativePath.toLowerCase(Locale.ROOT) + "/";
+        for (String segment : SKIPPED_PATH_SEGMENTS) {
+            if (normalized.contains(segment)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // --------------------------------------------------
