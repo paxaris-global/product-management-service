@@ -85,7 +85,7 @@ public class ProvisioningController {
     }
 
     /**
-     * Generate a standardized repository name.
+     * Generate a standardized repository name.vv
      *
      * @param realmName    Realm name
      * @param adminUsername Admin username
