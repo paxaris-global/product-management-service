@@ -16,7 +16,7 @@ class ProvisioningServiceTest {
     @BeforeEach
     void setUp() {
         // Initialize with test configuration
-        provisioningService = new ProvisioningService("test-token", "test-org", "https://api.github.com", "admin");
+        provisioningService = new ProvisioningService("test-token", "test-org", "https://api.github.com", "admin", "paxaris-global", "paxo");
     }
 
     @Test
@@ -70,7 +70,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testValidateConfigWithMissingToken() {
-        ProvisioningService invalidService = new ProvisioningService("", "test-org", "https://api.github.com", "admin");
+        ProvisioningService invalidService = new ProvisioningService("", "test-org", "https://api.github.com", "admin", "paxaris-global", "paxo");
 
         MockMultipartFile dummyFile = new MockMultipartFile(
                 "file",
@@ -86,7 +86,7 @@ class ProvisioningServiceTest {
 
     @Test
     void testValidateConfigWithMissingOrg() {
-        ProvisioningService invalidService = new ProvisioningService("test-token", "", "https://api.github.com", "admin");
+        ProvisioningService invalidService = new ProvisioningService("test-token", "", "https://api.github.com", "admin", "paxaris-global", "paxo");
 
         MockMultipartFile dummyFile = new MockMultipartFile(
                 "file",

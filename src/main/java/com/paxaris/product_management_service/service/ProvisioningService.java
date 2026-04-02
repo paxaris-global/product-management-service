@@ -349,86 +349,82 @@ public class ProvisioningService {
     }
 
     private String generateBackendManifest(String repoName) {
-        return """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: """ + repoName + """
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/""" + repoName + """
-    argocd-image-updater.argoproj.io/""" + repoName + """.update-strategy: latest
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: """ + repoName + """
-  template:
-    metadata:
-      labels:
-        app: """ + repoName + """
-    spec:
-      containers:
-        - name: """ + repoName + """
-          image: devopspaxarisglobalrepo/""" + repoName + """:latest
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 8080
-          env:
-            - name: SPRING_PROFILES_ACTIVE
-              value: prod
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: """ + repoName + """
-spec:
-  selector:
-    app: """ + repoName + """
-  ports:
-    - port: 8080
-      targetPort: 8080
-  type: ClusterIP
-""";
+        return "apiVersion: apps/v1\n" +
+               "kind: Deployment\n" +
+               "metadata:\n" +
+               "  name: " + repoName + "\n" +
+               "  annotations:\n" +
+               "    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/" + repoName + "\n" +
+               "    argocd-image-updater.argoproj.io/" + repoName + ".update-strategy: latest\n" +
+               "spec:\n" +
+               "  replicas: 2\n" +
+               "  selector:\n" +
+               "    matchLabels:\n" +
+               "      app: " + repoName + "\n" +
+               "  template:\n" +
+               "    metadata:\n" +
+               "      labels:\n" +
+               "        app: " + repoName + "\n" +
+               "    spec:\n" +
+               "      containers:\n" +
+               "        - name: " + repoName + "\n" +
+               "          image: devopspaxarisglobalrepo/" + repoName + ":latest\n" +
+               "          imagePullPolicy: Always\n" +
+               "          ports:\n" +
+               "            - containerPort: 8080\n" +
+               "          env:\n" +
+               "            - name: SPRING_PROFILES_ACTIVE\n" +
+               "              value: prod\n" +
+               "---\n" +
+               "apiVersion: v1\n" +
+               "kind: Service\n" +
+               "metadata:\n" +
+               "  name: " + repoName + "\n" +
+               "spec:\n" +
+               "  selector:\n" +
+               "    app: " + repoName + "\n" +
+               "  ports:\n" +
+               "    - port: 8080\n" +
+               "      targetPort: 8080\n" +
+               "  type: ClusterIP\n";
     }
 
     private String generateFrontendManifest(String repoName) {
-        return """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: """ + repoName + """-frontend
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/""" + repoName + """
-    argocd-image-updater.argoproj.io/""" + repoName + """.update-strategy: latest
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: """ + repoName + """-frontend
-  template:
-    metadata:
-      labels:
-        app: """ + repoName + """-frontend
-    spec:
-      containers:
-        - name: """ + repoName + """-frontend
-          image: devopspaxarisglobalrepo/""" + repoName + """:latest
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 80
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: """ + repoName + """-frontend
-spec:
-  selector:
-    app: """ + repoName + """-frontend
-  ports:
-    - port: 80
-      targetPort: 80
-  type: ClusterIP
-""";
+        return "apiVersion: apps/v1\n" +
+               "kind: Deployment\n" +
+               "metadata:\n" +
+               "  name: " + repoName + "\n" +
+               "  annotations:\n" +
+               "    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/" + repoName + "\n" +
+               "    argocd-image-updater.argoproj.io/" + repoName + ".update-strategy: latest\n" +
+               "spec:\n" +
+               "  replicas: 2\n" +
+               "  selector:\n" +
+               "    matchLabels:\n" +
+               "      app: " + repoName + "\n" +
+               "  template:\n" +
+               "    metadata:\n" +
+               "      labels:\n" +
+               "        app: " + repoName + "\n" +
+               "    spec:\n" +
+               "      containers:\n" +
+               "        - name: " + repoName + "\n" +
+               "          image: devopspaxarisglobalrepo/" + repoName + ":latest\n" +
+               "          imagePullPolicy: Always\n" +
+               "          ports:\n" +
+               "            - containerPort: 80\n" +
+               "---\n" +
+               "apiVersion: v1\n" +
+               "kind: Service\n" +
+               "metadata:\n" +
+               "  name: " + repoName + "\n" +
+               "spec:\n" +
+               "  selector:\n" +
+               "    app: " + repoName + "\n" +
+               "  ports:\n" +
+               "    - port: 80\n" +
+               "      targetPort: 80\n" +
+               "  type: ClusterIP\n";
     }
 
     private void updatePaxoRepo(String fileName, String content) throws Exception {
