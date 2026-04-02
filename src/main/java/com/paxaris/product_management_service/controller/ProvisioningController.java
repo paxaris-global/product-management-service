@@ -27,7 +27,7 @@ public class ProvisioningController {
     private final ProvisioningService provisioningService;
 
     /**
-     * Provision a new GitHub repository with uploaded zip file contents.
+     * Provision a new GitHub repository with uploaded zip file content.
      *
      * @param repoName Name of the repository to create
      * @param zipFile  ZIP file containing project contents
