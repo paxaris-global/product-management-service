@@ -33,6 +33,8 @@ public class ProvisioningService {
     private final String githubOrg;
     private final String githubApiBaseUrl;
     private final String defaultAdminUsername;
+    private final String paxoOrg;
+    private final String paxoRepo;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
@@ -40,11 +42,15 @@ public class ProvisioningService {
             @Value("${github.token}") String githubToken,
             @Value("${github.org}") String githubOrg,
             @Value("${github.api.base-url}") String githubApiBaseUrl,
-            @Value("${provisioning.default-admin-username}") String defaultAdminUsername) {
+            @Value("${provisioning.default-admin-username}") String defaultAdminUsername,
+            @Value("${paxo.org:paxaris-global}") String paxoOrg,
+            @Value("${paxo.repo:paxo}") String paxoRepo) {
         this.githubToken = githubToken;
         this.githubOrg = githubOrg;
         this.githubApiBaseUrl = githubApiBaseUrl;
         this.defaultAdminUsername = defaultAdminUsername;
+        this.paxoOrg = paxoOrg;
+        this.paxoRepo = paxoRepo;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newHttpClient();
     }
@@ -65,6 +71,7 @@ public class ProvisioningService {
         createRepo(repoName);
         Path tempDir = unzip(zipFile);
         uploadDirectoryToGitHub(tempDir, repoName);
+        generateAndDeployManifests(repoName, tempDir);
         return tempDir;
     }
 
@@ -326,6 +333,157 @@ public class ProvisioningService {
             }
         }
         return extractPath;
+    }
+
+    // --------------------------------------------------
+    // GENERATE AND DEPLOY K8S MANIFESTS
+    // --------------------------------------------------
+    private void generateAndDeployManifests(String repoName, Path tempDir) throws Exception {
+        if (repoName.endsWith("-backend")) {
+            String manifest = generateBackendManifest(repoName);
+            updatePaxoRepo(repoName + "-deployment.yaml", manifest);
+        } else if (repoName.endsWith("-frontend")) {
+            String manifest = generateFrontendManifest(repoName);
+            updatePaxoRepo(repoName + "-deployment.yaml", manifest);
+        }
+    }
+
+    private String generateBackendManifest(String repoName) {
+        return """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: """ + repoName + """
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/""" + repoName + """
+    argocd-image-updater.argoproj.io/""" + repoName + """.update-strategy: latest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: """ + repoName + """
+  template:
+    metadata:
+      labels:
+        app: """ + repoName + """
+    spec:
+      containers:
+        - name: """ + repoName + """
+          image: devopspaxarisglobalrepo/""" + repoName + """:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: """ + repoName + """
+spec:
+  selector:
+    app: """ + repoName + """
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+""";
+    }
+
+    private String generateFrontendManifest(String repoName) {
+        return """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: """ + repoName + """-frontend
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/""" + repoName + """
+    argocd-image-updater.argoproj.io/""" + repoName + """.update-strategy: latest
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: """ + repoName + """-frontend
+  template:
+    metadata:
+      labels:
+        app: """ + repoName + """-frontend
+    spec:
+      containers:
+        - name: """ + repoName + """-frontend
+          image: devopspaxarisglobalrepo/""" + repoName + """:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: """ + repoName + """-frontend
+spec:
+  selector:
+    app: """ + repoName + """-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP
+""";
+    }
+
+    private void updatePaxoRepo(String fileName, String content) throws Exception {
+        Path tempPaxoDir = Files.createTempDirectory("paxo-clone-");
+        try {
+            // Clone paxo repo
+            ProcessBuilder clonePb = new ProcessBuilder("git", "clone", "https://" + githubToken + "@github.com/" + paxoOrg + "/" + paxoRepo + ".git", tempPaxoDir.toString());
+            clonePb.redirectErrorStream(true);
+            Process cloneProcess = clonePb.start();
+            int cloneExit = cloneProcess.waitFor();
+            if (cloneExit != 0) {
+                throw new RuntimeException("Failed to clone paxo repo");
+            }
+
+            // Write manifest
+            Path manifestPath = tempPaxoDir.resolve("k8").resolve(fileName);
+            Files.createDirectories(manifestPath.getParent());
+            Files.writeString(manifestPath, content);
+
+            // Git add, commit, push
+            ProcessBuilder addPb = new ProcessBuilder("git", "add", "k8/" + fileName);
+            addPb.directory(tempPaxoDir.toFile());
+            Process addProcess = addPb.start();
+            addProcess.waitFor();
+
+            ProcessBuilder commitPb = new ProcessBuilder("git", "commit", "-m", "Add deployment for " + fileName);
+            commitPb.directory(tempPaxoDir.toFile());
+            Process commitProcess = commitPb.start();
+            commitProcess.waitFor();
+
+            ProcessBuilder pushPb = new ProcessBuilder("git", "push");
+            pushPb.directory(tempPaxoDir.toFile());
+            Process pushProcess = pushPb.start();
+            int pushExit = pushProcess.waitFor();
+            if (pushExit != 0) {
+                throw new RuntimeException("Failed to push to paxo repo");
+            }
+        } finally {
+            // Clean up
+            deleteDirectory(tempPaxoDir);
+        }
+    }
+
+    private void deleteDirectory(Path path) throws IOException {
+        if (Files.isDirectory(path)) {
+            try (var stream = Files.walk(path)) {
+                stream.sorted((a, b) -> b.compareTo(a)).forEach(p -> {
+                    try {
+                        Files.delete(p);
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                });
+            }
+        }
     }
 }
 
