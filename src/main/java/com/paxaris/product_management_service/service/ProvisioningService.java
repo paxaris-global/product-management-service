@@ -8,6 +8,9 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import com.goterl.lazysodium.LazySodiumJava;
+import com.goterl.lazysodium.SodiumJava;
+import com.goterl.lazysodium.interfaces.Box;
 
 import java.io.IOException;
 import java.net.URI;
@@ -25,6 +28,8 @@ public class ProvisioningService {
 
     private static final int TREE_BATCH_SIZE = 200;
     private static final long MAX_GITHUB_BLOB_BYTES = 50L * 1024 * 1024;
+    private static final int REPO_READY_MAX_RETRIES = 20;
+    private static final long REPO_READY_RETRY_DELAY_MS = 1500;
     private static final List<String> SKIPPED_PATH_SEGMENTS = List.of(
             "/.git/", "/node_modules/", "/target/", "/build/", "/dist/", "/out/", "/.idea/", "/.vscode/"
     );
@@ -37,6 +42,8 @@ public class ProvisioningService {
     private final String paxoRepo;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final String dockerHubUsername;
+    private final String dockerHubToken;
 
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
@@ -44,7 +51,9 @@ public class ProvisioningService {
             @Value("${github.api.base-url}") String githubApiBaseUrl,
             @Value("${provisioning.default-admin-username}") String defaultAdminUsername,
             @Value("${paxo.org:paxaris-global}") String paxoOrg,
-            @Value("${paxo.repo:paxo}") String paxoRepo) {
+            @Value("${paxo.repo:paxo}") String paxoRepo,
+            @Value("${docker.hub.username:}") String dockerHubUsername,
+            @Value("${docker.hub.token:}") String dockerHubToken) {
         this.githubToken = githubToken;
         this.githubOrg = githubOrg;
         this.githubApiBaseUrl = githubApiBaseUrl;
@@ -53,6 +62,8 @@ public class ProvisioningService {
         this.paxoRepo = paxoRepo;
         this.objectMapper = new ObjectMapper();
         this.httpClient = HttpClient.newHttpClient();
+        this.dockerHubUsername = dockerHubUsername;
+        this.dockerHubToken = dockerHubToken;
     }
 
     public String getGithubToken() {
@@ -69,11 +80,208 @@ public class ProvisioningService {
      */
     public Path provision(String repoName, MultipartFile zipFile) throws Exception {
         createRepo(repoName);
+        waitForRepositoryReady(repoName);
         Path tempDir = unzip(zipFile);
+                    setRepoGithubActionsSecrets(repoName);
+                ensureRepositoryTemplates(repoName, tempDir);
         uploadDirectoryToGitHub(tempDir, repoName);
         generateAndDeployManifests(repoName, tempDir);
         return tempDir;
     }
+
+    private void waitForRepositoryReady(String repoName) throws IOException {
+        String repoUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName;
+        RuntimeException lastError = null;
+
+        for (int attempt = 1; attempt <= REPO_READY_MAX_RETRIES; attempt++) {
+            try {
+                JsonNode repoNode = sendRequest("GET", repoUrl, null);
+                String fullName = repoNode.path("full_name").asText();
+                if (fullName != null && !fullName.isBlank()) {
+                    log.info("Repository is ready on GitHub: {}", fullName);
+                    return;
+                }
+            } catch (RuntimeException ex) {
+                lastError = ex;
+                if (!ex.getMessage().contains("(404)")) {
+                    throw ex;
+                }
+            }
+
+            try {
+                Thread.sleep(REPO_READY_RETRY_DELAY_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while waiting for GitHub repository readiness", ie);
+            }
+        }
+
+        throw new RuntimeException("Repository not ready after retries: " + githubOrg + "/" + repoName,
+                lastError);
+    }
+
+        private void ensureRepositoryTemplates(String repoName, Path tempDir) throws IOException {
+                boolean isBackend = repoName.endsWith("-backend");
+                int containerPort = isBackend ? 8080 : 80;
+
+                Path dockerfilePath = tempDir.resolve("Dockerfile");
+                if (Files.notExists(dockerfilePath)) {
+                        String dockerfile = isBackend ? generateBackendDockerfile() : generateFrontendDockerfile();
+                        Files.writeString(dockerfilePath, dockerfile);
+                        log.info("Generated default Dockerfile for {}", repoName);
+                }
+
+                Path k8ManifestPath = tempDir.resolve("k8").resolve("deployment.yaml");
+                if (Files.notExists(k8ManifestPath)) {
+                        Files.createDirectories(k8ManifestPath.getParent());
+                        Files.writeString(k8ManifestPath, generateRepositoryK8Manifest(repoName, containerPort));
+                        log.info("Generated default Kubernetes manifest for {}", repoName);
+                }
+
+                Path workflowPath = tempDir.resolve(".github").resolve("workflows").resolve("gitops-deploy.yml");
+                if (Files.notExists(workflowPath)) {
+                        Files.createDirectories(workflowPath.getParent());
+                        Files.writeString(workflowPath, generateRepositoryWorkflow());
+                        log.info("Generated default CI workflow for {}", repoName);
+                }
+        }
+
+        private String generateBackendDockerfile() {
+                return """
+                                FROM maven:3.9.8-eclipse-temurin-21 AS builder
+                                WORKDIR /app
+                                COPY pom.xml ./
+                                COPY src ./src
+                                RUN mvn -B -DskipTests clean package
+
+                                FROM eclipse-temurin:21-jre
+                                WORKDIR /app
+                                COPY --from=builder /app/target/*.jar app.jar
+                                EXPOSE 8080
+                                ENTRYPOINT [\"java\",\"-jar\",\"/app/app.jar\"]
+                                """;
+        }
+
+        private String generateFrontendDockerfile() {
+                return """
+                                FROM node:20-alpine AS builder
+                                WORKDIR /app
+                                COPY package*.json ./
+                                RUN npm ci
+                                COPY . .
+                                RUN npm run build
+
+                                FROM nginx:1.27-alpine
+                                COPY --from=builder /app/dist /usr/share/nginx/html
+                                EXPOSE 80
+                                CMD [\"nginx\",\"-g\",\"daemon off;\"]
+                                """;
+        }
+
+        private String generateRepositoryK8Manifest(String repoName, int containerPort) {
+                return """
+                                apiVersion: apps/v1
+                                kind: Deployment
+                                metadata:
+                                    name: %s
+                                spec:
+                                    replicas: 1
+                                    selector:
+                                        matchLabels:
+                                            app: %s
+                                    template:
+                                        metadata:
+                                            labels:
+                                                app: %s
+                                        spec:
+                                            containers:
+                                                - name: %s
+                                                    image: devopspaxarisglobalrepo/%s:latest
+                                                    imagePullPolicy: Always
+                                                    ports:
+                                                        - containerPort: %d
+                                ---
+                                apiVersion: v1
+                                kind: Service
+                                metadata:
+                                    name: %s
+                                spec:
+                                    selector:
+                                        app: %s
+                                    ports:
+                                        - port: %d
+                                            targetPort: %d
+                                    type: ClusterIP
+                                """.formatted(repoName, repoName, repoName, repoName, repoName, containerPort, repoName, repoName, containerPort, containerPort);
+        }
+
+        private String generateRepositoryWorkflow() {
+                return """
+                                name: Build Push And GitOps Update
+
+                                on:
+                                    push:
+                                        branches:
+                                            - main
+                                            - master
+
+                                permissions:
+                                    contents: write
+
+                                jobs:
+                                    build-and-update:
+                                        if: github.actor != 'github-actions[bot]'
+                                        runs-on: ubuntu-latest
+                                        steps:
+                                            - name: Checkout
+                                                uses: actions/checkout@v4
+
+                                            - name: Set image variables
+                                                id: vars
+                                                run: |
+                                                    REPO_NAME="${GITHUB_REPOSITORY#*/}"
+                                                    IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/$REPO_NAME"
+                                                    IMAGE_TAG="${GITHUB_SHA}"
+                                                    echo "image_repo=$IMAGE_REPO" >> "$GITHUB_OUTPUT"
+                                                    echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+                                            - name: Login to Docker Hub
+                                                uses: docker/login-action@v3
+                                                with:
+                                                    username: ${{ secrets.DOCKERHUB_USERNAME }}
+                                                    password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+                                            - name: Set up Docker Buildx
+                                                uses: docker/setup-buildx-action@v3
+
+                                            - name: Build and push image
+                                                uses: docker/build-push-action@v6
+                                                with:
+                                                    context: .
+                                                    file: ./Dockerfile
+                                                    push: true
+                                                    tags: |
+                                                        ${{ steps.vars.outputs.image_repo }}:latest
+                                                        ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}
+
+                                            - name: Update k8 image tag
+                                                run: |
+                                                    sed -i.bak "s|^[[:space:]]*image:[[:space:]].*|          image: ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}|" k8/deployment.yaml
+                                                    rm -f k8/deployment.yaml.bak
+
+                                            - name: Commit and push manifest changes
+                                                run: |
+                                                    if git diff --quiet; then
+                                                        echo "No manifest changes to commit"
+                                                        exit 0
+                                                    fi
+                                                    git config user.name "github-actions[bot]"
+                                                    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                                                    git add k8/deployment.yaml
+                                                    git commit -m "ci: update image tag [skip ci]"
+                                                    git push
+                                """;
+        }
 
     public String generateRepositoryName(String realmName, String adminUsername, String productName) {
         String adminPart = adminUsername != null ? adminUsername : defaultAdminUsername;
@@ -83,6 +291,46 @@ public class ProvisioningService {
     // --------------------------------------------------
     // CREATE GITHUB REPO
     // --------------------------------------------------
+        // --------------------------------------------------
+        // SET GITHUB ACTIONS SECRETS (DockerHub)
+        // --------------------------------------------------
+        private void setRepoGithubActionsSecrets(String repoName) {
+            if (dockerHubUsername == null || dockerHubUsername.isBlank()
+                    || dockerHubToken == null || dockerHubToken.isBlank()) {
+                log.warn("Docker Hub credentials not configured. Skipping GitHub Actions secret injection for {}", repoName);
+                return;
+            }
+            try {
+                String pubKeyUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/secrets/public-key";
+                JsonNode pubKeyNode = sendRequest("GET", pubKeyUrl, null);
+                String keyId = pubKeyNode.get("key_id").asText();
+                String publicKeyB64 = pubKeyNode.get("key").asText();
+                byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyB64);
+
+                LazySodiumJava lazySodium = new LazySodiumJava(new SodiumJava());
+                Map<String, String> secrets = Map.of(
+                        "DOCKERHUB_USERNAME", dockerHubUsername,
+                        "DOCKERHUB_TOKEN", dockerHubToken
+                );
+                for (Map.Entry<String, String> entry : secrets.entrySet()) {
+                    byte[] messageBytes = entry.getValue().getBytes(StandardCharsets.UTF_8);
+                    byte[] sealed = new byte[Box.SEALBYTES + messageBytes.length];
+                    lazySodium.cryptoBoxSeal(sealed, messageBytes, messageBytes.length, publicKeyBytes);
+                    String encryptedValue = Base64.getEncoder().encodeToString(sealed);
+                    String secretUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName
+                            + "/actions/secrets/" + entry.getKey();
+                    String body = "{\"encrypted_value\":\"" + encryptedValue + "\",\"key_id\":\"" + keyId + "\"}";
+                    sendRequest("PUT", secretUrl, body);
+                    log.info("Set GitHub Actions secret {} for repo {}", entry.getKey(), repoName);
+                }
+            } catch (Exception e) {
+                log.error("Failed to set GitHub Actions secrets for {}: {}", repoName, e.getMessage());
+            }
+        }
+
+        // --------------------------------------------------
+        // CREATE GITHUB REPO
+        // --------------------------------------------------
     public void createRepo(String repoName) throws IOException {
         validateConfig();
 
@@ -342,11 +590,38 @@ public class ProvisioningService {
         if (repoName.endsWith("-backend")) {
             String manifest = generateBackendManifest(repoName);
             updatePaxoRepo(repoName + "-deployment.yaml", manifest);
+                        updatePaxoRepo("generated-apps/" + repoName + "-app.yaml", generateArgoApplicationManifest(repoName));
         } else if (repoName.endsWith("-frontend")) {
             String manifest = generateFrontendManifest(repoName);
             updatePaxoRepo(repoName + "-deployment.yaml", manifest);
+                        updatePaxoRepo("generated-apps/" + repoName + "-app.yaml", generateArgoApplicationManifest(repoName));
         }
     }
+
+        private String generateArgoApplicationManifest(String repoName) {
+                return """
+                                apiVersion: argoproj.io/v1alpha1
+                                kind: Application
+                                metadata:
+                                    name: %s-app
+                                    namespace: argocd
+                                spec:
+                                    project: default
+                                    source:
+                                        repoURL: https://github.com/%s/%s.git
+                                        targetRevision: main
+                                        path: k8
+                                    destination:
+                                        server: https://kubernetes.default.svc
+                                        namespace: default
+                                    syncPolicy:
+                                        automated:
+                                            prune: true
+                                            selfHeal: true
+                                        syncOptions:
+                                            - CreateNamespace=true
+                                """.formatted(repoName, githubOrg, repoName);
+        }
 
     private String generateBackendManifest(String repoName) {
         return "apiVersion: apps/v1\n" +
