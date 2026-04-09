@@ -179,6 +179,7 @@ public class ProvisioningService {
         }
 
         private String generateRepositoryK8Manifest(String repoName, int containerPort) {
+            String k8Name = toK8sName(repoName, 63);
                 return """
                                 apiVersion: apps/v1
                                 kind: Deployment
@@ -212,7 +213,7 @@ public class ProvisioningService {
                                         - port: %d
                                             targetPort: %d
                                     type: ClusterIP
-                                """.formatted(repoName, repoName, repoName, repoName, repoName, containerPort, repoName, repoName, containerPort, containerPort);
+                                """.formatted(k8Name, k8Name, k8Name, k8Name, repoName, containerPort, k8Name, k8Name, containerPort, containerPort);
         }
 
         private String generateRepositoryWorkflow() {
@@ -308,10 +309,10 @@ public class ProvisioningService {
                 byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyB64);
 
                 LazySodiumJava lazySodium = new LazySodiumJava(new SodiumJava());
-                Map<String, String> secrets = Map.of(
-                        "DOCKERHUB_USERNAME", dockerHubUsername,
-                        "DOCKERHUB_TOKEN", dockerHubToken
-                );
+                Map<String, String> secrets = new LinkedHashMap<>();
+                secrets.put("DOCKERHUB_USERNAME", dockerHubUsername);
+                secrets.put("DOCKERHUB_TOKEN", dockerHubToken);
+                secrets.put("GH_ACCESS_TOKEN", githubToken);
                 for (Map.Entry<String, String> entry : secrets.entrySet()) {
                     byte[] messageBytes = entry.getValue().getBytes(StandardCharsets.UTF_8);
                     byte[] sealed = new byte[Box.SEALBYTES + messageBytes.length];
@@ -599,11 +600,12 @@ public class ProvisioningService {
     }
 
         private String generateArgoApplicationManifest(String repoName) {
+                String appName = toK8sName(repoName + "-app", 63);
                 return """
                                 apiVersion: argoproj.io/v1alpha1
                                 kind: Application
                                 metadata:
-                                    name: %s-app
+                                    name: %s
                                     namespace: argocd
                                 spec:
                                     project: default
@@ -620,14 +622,15 @@ public class ProvisioningService {
                                             selfHeal: true
                                         syncOptions:
                                             - CreateNamespace=true
-                                """.formatted(repoName, githubOrg, repoName);
+                                """.formatted(appName, githubOrg, repoName);
         }
 
     private String generateBackendManifest(String repoName) {
+        String k8Name = toK8sName(repoName, 63);
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
-               "  name: " + repoName + "\n" +
+               "  name: " + k8Name + "\n" +
                "  annotations:\n" +
                "    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/" + repoName + "\n" +
                "    argocd-image-updater.argoproj.io/" + repoName + ".update-strategy: latest\n" +
@@ -635,14 +638,14 @@ public class ProvisioningService {
                "  replicas: 2\n" +
                "  selector:\n" +
                "    matchLabels:\n" +
-               "      app: " + repoName + "\n" +
+               "      app: " + k8Name + "\n" +
                "  template:\n" +
                "    metadata:\n" +
                "      labels:\n" +
-               "        app: " + repoName + "\n" +
+               "        app: " + k8Name + "\n" +
                "    spec:\n" +
                "      containers:\n" +
-               "        - name: " + repoName + "\n" +
+               "        - name: " + k8Name + "\n" +
                "          image: devopspaxarisglobalrepo/" + repoName + ":latest\n" +
                "          imagePullPolicy: Always\n" +
                "          ports:\n" +
@@ -654,10 +657,10 @@ public class ProvisioningService {
                "apiVersion: v1\n" +
                "kind: Service\n" +
                "metadata:\n" +
-               "  name: " + repoName + "\n" +
+             "  name: " + k8Name + "\n" +
                "spec:\n" +
                "  selector:\n" +
-               "    app: " + repoName + "\n" +
+             "    app: " + k8Name + "\n" +
                "  ports:\n" +
                "    - port: 8080\n" +
                "      targetPort: 8080\n" +
@@ -665,10 +668,11 @@ public class ProvisioningService {
     }
 
     private String generateFrontendManifest(String repoName) {
+         String k8Name = toK8sName(repoName, 63);
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
-               "  name: " + repoName + "\n" +
+             "  name: " + k8Name + "\n" +
                "  annotations:\n" +
                "    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/" + repoName + "\n" +
                "    argocd-image-updater.argoproj.io/" + repoName + ".update-strategy: latest\n" +
@@ -676,14 +680,14 @@ public class ProvisioningService {
                "  replicas: 2\n" +
                "  selector:\n" +
                "    matchLabels:\n" +
-               "      app: " + repoName + "\n" +
+             "      app: " + k8Name + "\n" +
                "  template:\n" +
                "    metadata:\n" +
                "      labels:\n" +
-               "        app: " + repoName + "\n" +
+             "        app: " + k8Name + "\n" +
                "    spec:\n" +
                "      containers:\n" +
-               "        - name: " + repoName + "\n" +
+             "        - name: " + k8Name + "\n" +
                "          image: devopspaxarisglobalrepo/" + repoName + ":latest\n" +
                "          imagePullPolicy: Always\n" +
                "          ports:\n" +
@@ -692,55 +696,63 @@ public class ProvisioningService {
                "apiVersion: v1\n" +
                "kind: Service\n" +
                "metadata:\n" +
-               "  name: " + repoName + "\n" +
+               "  name: " + k8Name + "\n" +
                "spec:\n" +
                "  selector:\n" +
-               "    app: " + repoName + "\n" +
+               "    app: " + k8Name + "\n" +
                "  ports:\n" +
                "    - port: 80\n" +
                "      targetPort: 80\n" +
                "  type: ClusterIP\n";
     }
 
-    private void updatePaxoRepo(String fileName, String content) throws Exception {
-        Path tempPaxoDir = Files.createTempDirectory("paxo-clone-");
-        try {
-            // Clone paxo repo
-            ProcessBuilder clonePb = new ProcessBuilder("git", "clone", "https://" + githubToken + "@github.com/" + paxoOrg + "/" + paxoRepo + ".git", tempPaxoDir.toString());
-            clonePb.redirectErrorStream(true);
-            Process cloneProcess = clonePb.start();
-            int cloneExit = cloneProcess.waitFor();
-            if (cloneExit != 0) {
-                throw new RuntimeException("Failed to clone paxo repo");
-            }
-
-            // Write manifest
-            Path manifestPath = tempPaxoDir.resolve("k8").resolve(fileName);
-            Files.createDirectories(manifestPath.getParent());
-            Files.writeString(manifestPath, content);
-
-            // Git add, commit, push
-            ProcessBuilder addPb = new ProcessBuilder("git", "add", "k8/" + fileName);
-            addPb.directory(tempPaxoDir.toFile());
-            Process addProcess = addPb.start();
-            addProcess.waitFor();
-
-            ProcessBuilder commitPb = new ProcessBuilder("git", "commit", "-m", "Add deployment for " + fileName);
-            commitPb.directory(tempPaxoDir.toFile());
-            Process commitProcess = commitPb.start();
-            commitProcess.waitFor();
-
-            ProcessBuilder pushPb = new ProcessBuilder("git", "push");
-            pushPb.directory(tempPaxoDir.toFile());
-            Process pushProcess = pushPb.start();
-            int pushExit = pushProcess.waitFor();
-            if (pushExit != 0) {
-                throw new RuntimeException("Failed to push to paxo repo");
-            }
-        } finally {
-            // Clean up
-            deleteDirectory(tempPaxoDir);
+    private String toK8sName(String raw, int maxLen) {
+        if (raw == null || raw.isBlank()) {
+            return "app";
         }
+
+        String sanitized = raw.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9-]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-+", "")
+                .replaceAll("-+$", "");
+
+        if (sanitized.isBlank()) {
+            sanitized = "app";
+        }
+        if (!Character.isLetter(sanitized.charAt(0))) {
+            sanitized = "a-" + sanitized;
+        }
+        if (sanitized.length() > maxLen) {
+            sanitized = sanitized.substring(0, maxLen).replaceAll("-+$", "");
+        }
+        return sanitized;
+    }
+
+    private void updatePaxoRepo(String fileName, String content) throws Exception {
+        String repoPath = "k8/" + fileName;
+        String existingSha = null;
+        String contentsUrl = githubApiBaseUrl + "/repos/" + paxoOrg + "/" + paxoRepo + "/contents/" + repoPath;
+
+        try {
+            JsonNode existingNode = sendRequest("GET", contentsUrl, null);
+            existingSha = existingNode.path("sha").asText(null);
+        } catch (RuntimeException ex) {
+            if (!ex.getMessage().contains("(404)")) {
+                throw ex;
+            }
+        }
+
+        Map<String, Object> updateBody = new LinkedHashMap<>();
+        updateBody.put("message", (existingSha == null ? "Add" : "Update") + " deployment for " + fileName);
+        updateBody.put("content", Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8)));
+        updateBody.put("branch", "main");
+        if (existingSha != null && !existingSha.isBlank()) {
+            updateBody.put("sha", existingSha);
+        }
+
+        sendRequest("PUT", contentsUrl, objectMapper.writeValueAsString(updateBody));
+        log.info("Updated {}/{} path {} via GitHub Contents API", paxoOrg, paxoRepo, repoPath);
     }
 
     private void deleteDirectory(Path path) throws IOException {
