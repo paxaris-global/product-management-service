@@ -137,11 +137,19 @@ public class ProvisioningService {
                         log.info("Generated default Kubernetes manifest for {}", repoName);
                 }
 
-                Path workflowPath = tempDir.resolve(".github").resolve("workflows").resolve("gitops-deploy.yml");
-                if (Files.notExists(workflowPath)) {
-                        Files.createDirectories(workflowPath.getParent());
-                    Files.writeString(workflowPath, generateRepositoryWorkflow(repoName));
-                        log.info("Generated default CI workflow for {}", repoName);
+                Path workflowsDir = tempDir.resolve(".github").resolve("workflows");
+                Files.createDirectories(workflowsDir);
+
+                // Always enforce the managed workflow so image naming and architectures stay consistent.
+                Path workflowPath = workflowsDir.resolve("gitops-deploy.yml");
+                Files.writeString(workflowPath, generateRepositoryWorkflow(repoName));
+                log.info("Ensured managed CI workflow for {}", repoName);
+
+                // Remove legacy trigger workflow from uploaded templates (it appends extra suffixes).
+                Path legacyTriggerWorkflow = workflowsDir.resolve("trigger.yml");
+                if (Files.exists(legacyTriggerWorkflow)) {
+                    Files.delete(legacyTriggerWorkflow);
+                    log.info("Removed legacy trigger workflow for {}", repoName);
                 }
         }
 
