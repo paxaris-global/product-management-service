@@ -678,7 +678,7 @@ public class ProvisioningService {
                "            - containerPort: 8080\n" +
                "          env:\n" +
                "            - name: SPRING_PROFILES_ACTIVE\n" +
-               "              value: prod\n" +
+               "              value: local\n" +
                "---\n" +
                "apiVersion: v1\n" +
                "kind: Service\n" +
