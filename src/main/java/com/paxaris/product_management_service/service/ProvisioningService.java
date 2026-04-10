@@ -140,7 +140,7 @@ public class ProvisioningService {
                 Path workflowPath = tempDir.resolve(".github").resolve("workflows").resolve("gitops-deploy.yml");
                 if (Files.notExists(workflowPath)) {
                         Files.createDirectories(workflowPath.getParent());
-                        Files.writeString(workflowPath, generateRepositoryWorkflow());
+                    Files.writeString(workflowPath, generateRepositoryWorkflow(repoName));
                         log.info("Generated default CI workflow for {}", repoName);
                 }
         }
@@ -218,7 +218,8 @@ public class ProvisioningService {
                                 """.formatted(k8Name, k8Name, k8Name, k8Name, imageRepo, containerPort, k8Name, k8Name, containerPort, containerPort);
         }
 
-        private String generateRepositoryWorkflow() {
+        private String generateRepositoryWorkflow(String repoName) {
+            String imageRepo = generateImageRepository(repoName);
                 return """
                                 name: Build Push And GitOps Update
 
@@ -242,8 +243,7 @@ public class ProvisioningService {
                                             - name: Set image variables
                                                 id: vars
                                                 run: |
-                                                    REPO_NAME="${GITHUB_REPOSITORY#*/}"
-                                                    IMAGE_REPO="${{ vars.DOCKERHUB_USERNAME }}/$REPO_NAME"
+                                                    IMAGE_REPO="%s"
                                                     IMAGE_TAG="${GITHUB_SHA}"
                                                     echo "image_repo=$IMAGE_REPO" >> "$GITHUB_OUTPUT"
                                                     echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
@@ -287,7 +287,7 @@ public class ProvisioningService {
                                                     git add k8/deployment.yaml
                                                     git commit -m "ci: update image tag [skip ci]"
                                                     git push
-                                """;
+                                """.formatted(imageRepo);
         }
 
     public String generateRepositoryName(String realmName, String adminUsername, String productName) {
