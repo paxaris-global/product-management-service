@@ -8,9 +8,6 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import com.goterl.lazysodium.LazySodiumJava;
-import com.goterl.lazysodium.SodiumJava;
-import com.goterl.lazysodium.interfaces.Box;
 
 import java.io.IOException;
 import java.net.URI;
@@ -82,7 +79,7 @@ public class ProvisioningService {
         createRepo(repoName);
         waitForRepositoryReady(repoName);
         Path tempDir = unzip(zipFile);
-                    setRepoGithubActionsSecrets(repoName);
+                    setRepoGithubActionsVariables(repoName);
                 ensureRepositoryTemplates(repoName, tempDir);
         uploadDirectoryToGitHub(tempDir, repoName);
         generateAndDeployManifests(repoName, tempDir);
@@ -244,13 +241,7 @@ public class ProvisioningService {
                                                 id: vars
                                                 run: |
                                                     REPO_NAME="${GITHUB_REPOSITORY#*/}"
-                                                                                                        if [[ "$REPO_NAME" == *-backend ]]; then
-                                                                                                            IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}-backend"
-                                                                                                        elif [[ "$REPO_NAME" == *-frontend ]]; then
-                                                                                                            IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}-frontend"
-                                                                                                        else
-                                                                                                            IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/$REPO_NAME"
-                                                                                                        fi
+                                                    IMAGE_REPO="${{ vars.DOCKERHUB_USERNAME }}/$REPO_NAME"
                                                     IMAGE_TAG="${GITHUB_SHA}"
                                                     echo "image_repo=$IMAGE_REPO" >> "$GITHUB_OUTPUT"
                                                     echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
@@ -258,8 +249,8 @@ public class ProvisioningService {
                                             - name: Login to Docker Hub
                                                 uses: docker/login-action@v3
                                                 with:
-                                                    username: ${{ secrets.DOCKERHUB_USERNAME }}
-                                                    password: ${{ secrets.DOCKERHUB_TOKEN }}
+                                                    username: ${{ vars.DOCKERHUB_USERNAME }}
+                                                    password: ${{ vars.DOCKERHUB_TOKEN }}
 
                                             - name: Set up Docker Buildx
                                                 uses: docker/setup-buildx-action@v3
@@ -306,39 +297,36 @@ public class ProvisioningService {
     // CREATE GITHUB REPO
     // --------------------------------------------------
         // --------------------------------------------------
-        // SET GITHUB ACTIONS SECRETS (DockerHub)
+        // SET GITHUB ACTIONS VARIABLES (DockerHub)
         // --------------------------------------------------
-        private void setRepoGithubActionsSecrets(String repoName) {
+        private void setRepoGithubActionsVariables(String repoName) {
             if (dockerHubUsername == null || dockerHubUsername.isBlank()
                     || dockerHubToken == null || dockerHubToken.isBlank()) {
-                log.warn("Docker Hub credentials not configured. Skipping GitHub Actions secret injection for {}", repoName);
+                log.warn("Docker Hub credentials not configured. Skipping GitHub Actions variable injection for {}", repoName);
                 return;
             }
             try {
-                String pubKeyUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/secrets/public-key";
-                JsonNode pubKeyNode = sendRequest("GET", pubKeyUrl, null);
-                String keyId = pubKeyNode.get("key_id").asText();
-                String publicKeyB64 = pubKeyNode.get("key").asText();
-                byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyB64);
-
-                LazySodiumJava lazySodium = new LazySodiumJava(new SodiumJava());
-                Map<String, String> secrets = new LinkedHashMap<>();
-                secrets.put("DOCKERHUB_USERNAME", dockerHubUsername);
-                secrets.put("DOCKERHUB_TOKEN", dockerHubToken);
-                secrets.put("GH_ACCESS_TOKEN", githubToken);
-                for (Map.Entry<String, String> entry : secrets.entrySet()) {
-                    byte[] messageBytes = entry.getValue().getBytes(StandardCharsets.UTF_8);
-                    byte[] sealed = new byte[Box.SEALBYTES + messageBytes.length];
-                    lazySodium.cryptoBoxSeal(sealed, messageBytes, messageBytes.length, publicKeyBytes);
-                    String encryptedValue = Base64.getEncoder().encodeToString(sealed);
-                    String secretUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName
-                            + "/actions/secrets/" + entry.getKey();
-                    String body = "{\"encrypted_value\":\"" + encryptedValue + "\",\"key_id\":\"" + keyId + "\"}";
-                    sendRequest("PUT", secretUrl, body);
-                    log.info("Set GitHub Actions secret {} for repo {}", entry.getKey(), repoName);
+                Map<String, String> variables = new LinkedHashMap<>();
+                variables.put("DOCKERHUB_USERNAME", dockerHubUsername);
+                variables.put("DOCKERHUB_TOKEN", dockerHubToken);
+                for (Map.Entry<String, String> entry : variables.entrySet()) {
+                    String baseUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/variables";
+                    String createBody = "{\"name\":\"" + entry.getKey() + "\",\"value\":\"" + entry.getValue() + "\"}";
+                    try {
+                        sendRequest("POST", baseUrl, createBody);
+                    } catch (RuntimeException ex) {
+                        if (ex.getMessage().contains("(409)")) {
+                            String updateUrl = baseUrl + "/" + entry.getKey();
+                            String updateBody = "{\"name\":\"" + entry.getKey() + "\",\"value\":\"" + entry.getValue() + "\"}";
+                            sendRequest("PATCH", updateUrl, updateBody);
+                        } else {
+                            throw ex;
+                        }
+                    }
+                    log.info("Set GitHub Actions variable {} for repo {}", entry.getKey(), repoName);
                 }
             } catch (Exception e) {
-                log.error("Failed to set GitHub Actions secrets for {}: {}", repoName, e.getMessage());
+                log.error("Failed to set GitHub Actions variables for {}: {}", repoName, e.getMessage());
             }
         }
 
