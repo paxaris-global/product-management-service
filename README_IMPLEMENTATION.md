@@ -2,7 +2,7 @@
 
 ## 🎯 Overview
 
-This document summarizes the complete implementation of URI/HTTP Method storage and multipart file upload fixes in the Product Management Service.
+This document summarizes the complete implementation of URI/HTTP Method storage and multipart file upload fixes in the Product Management Services.
 
 ---
 
