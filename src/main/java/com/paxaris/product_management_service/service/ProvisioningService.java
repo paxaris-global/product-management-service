@@ -76,13 +76,15 @@ public class ProvisioningService {
      * incremental commits to avoid large Git tree payloads.
      */
     public Path provision(String repoName, MultipartFile zipFile) throws Exception {
-        createRepo(repoName);
-        waitForRepositoryReady(repoName);
+        String normalizedRepoName = normalizeRepositoryName(repoName);
+
+        createRepo(normalizedRepoName);
+        waitForRepositoryReady(normalizedRepoName);
         Path tempDir = unzip(zipFile);
-                    setRepoGithubActionsVariables(repoName);
-                ensureRepositoryTemplates(repoName, tempDir);
-        uploadDirectoryToGitHub(tempDir, repoName);
-        generateAndDeployManifests(repoName, tempDir);
+                    setRepoGithubActionsVariables(normalizedRepoName);
+                ensureRepositoryTemplates(normalizedRepoName, tempDir);
+        uploadDirectoryToGitHub(tempDir, normalizedRepoName);
+        generateAndDeployManifests(normalizedRepoName, tempDir);
         return tempDir;
     }
 
@@ -290,7 +292,26 @@ public class ProvisioningService {
 
     public String generateRepositoryName(String realmName, String adminUsername, String productName) {
         String adminPart = adminUsername != null ? adminUsername : defaultAdminUsername;
-        return String.format("%s-%s-%s", realmName, adminPart, productName).toLowerCase();
+        return normalizeRepositoryName(String.format("%s-%s-%s", realmName, adminPart, productName));
+    }
+
+    private String normalizeRepositoryName(String rawName) {
+        if (rawName == null || rawName.isBlank()) {
+            throw new IllegalArgumentException("Repository name cannot be blank");
+        }
+
+        String normalized = rawName.toLowerCase(Locale.ROOT)
+                .replace('_', '-')
+                .replaceAll("[^a-z0-9-]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-+", "")
+                .replaceAll("-+$", "");
+
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Repository name became empty after normalization");
+        }
+
+        return normalized;
     }
 
     // --------------------------------------------------
