@@ -180,6 +180,7 @@ public class ProvisioningService {
 
         private String generateRepositoryK8Manifest(String repoName, int containerPort) {
             String k8Name = toK8sName(repoName, 63);
+            String imageRepo = generateImageRepository(repoName);
                 return """
                                 apiVersion: apps/v1
                                 kind: Deployment
@@ -195,9 +196,11 @@ public class ProvisioningService {
                                             labels:
                                                 app: %s
                                         spec:
+                                            imagePullSecrets:
+                                                - name: dockerhub-secret
                                             containers:
                                                 - name: %s
-                                                    image: devopspaxarisglobalrepo/%s:latest
+                                                    image: %s:latest
                                                     imagePullPolicy: Always
                                                     ports:
                                                         - containerPort: %d
@@ -213,7 +216,7 @@ public class ProvisioningService {
                                         - port: %d
                                             targetPort: %d
                                     type: ClusterIP
-                                """.formatted(k8Name, k8Name, k8Name, k8Name, repoName, containerPort, k8Name, k8Name, containerPort, containerPort);
+                                """.formatted(k8Name, k8Name, k8Name, k8Name, imageRepo, containerPort, k8Name, k8Name, containerPort, containerPort);
         }
 
         private String generateRepositoryWorkflow() {
@@ -241,7 +244,13 @@ public class ProvisioningService {
                                                 id: vars
                                                 run: |
                                                     REPO_NAME="${GITHUB_REPOSITORY#*/}"
-                                                    IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/$REPO_NAME"
+                                                                                                        if [[ "$REPO_NAME" == *-backend ]]; then
+                                                                                                            IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}-backend"
+                                                                                                        elif [[ "$REPO_NAME" == *-frontend ]]; then
+                                                                                                            IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/${REPO_NAME}-frontend"
+                                                                                                        else
+                                                                                                            IMAGE_REPO="${{ secrets.DOCKERHUB_USERNAME }}/$REPO_NAME"
+                                                                                                        fi
                                                     IMAGE_TAG="${GITHUB_SHA}"
                                                     echo "image_repo=$IMAGE_REPO" >> "$GITHUB_OUTPUT"
                                                     echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
@@ -255,11 +264,15 @@ public class ProvisioningService {
                                             - name: Set up Docker Buildx
                                                 uses: docker/setup-buildx-action@v3
 
+                                            - name: Set up QEMU
+                                                uses: docker/setup-qemu-action@v3
+
                                             - name: Build and push image
                                                 uses: docker/build-push-action@v6
                                                 with:
                                                     context: .
                                                     file: ./Dockerfile
+                                                    platforms: linux/amd64,linux/arm64
                                                     push: true
                                                     tags: |
                                                         ${{ steps.vars.outputs.image_repo }}:latest
@@ -627,6 +640,7 @@ public class ProvisioningService {
 
     private String generateBackendManifest(String repoName) {
         String k8Name = toK8sName(repoName, 63);
+        String imageRepo = generateImageRepository(repoName);
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
@@ -644,9 +658,11 @@ public class ProvisioningService {
                "      labels:\n" +
                "        app: " + k8Name + "\n" +
                "    spec:\n" +
+               "      imagePullSecrets:\n" +
+               "        - name: dockerhub-secret\n" +
                "      containers:\n" +
                "        - name: " + k8Name + "\n" +
-               "          image: devopspaxarisglobalrepo/" + repoName + ":latest\n" +
+               "          image: " + imageRepo + ":latest\n" +
                "          imagePullPolicy: Always\n" +
                "          ports:\n" +
                "            - containerPort: 8080\n" +
@@ -669,6 +685,7 @@ public class ProvisioningService {
 
     private String generateFrontendManifest(String repoName) {
          String k8Name = toK8sName(repoName, 63);
+            String imageRepo = generateImageRepository(repoName);
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
@@ -686,9 +703,11 @@ public class ProvisioningService {
                "      labels:\n" +
              "        app: " + k8Name + "\n" +
                "    spec:\n" +
+                             "      imagePullSecrets:\n" +
+                             "        - name: dockerhub-secret\n" +
                "      containers:\n" +
              "        - name: " + k8Name + "\n" +
-               "          image: devopspaxarisglobalrepo/" + repoName + ":latest\n" +
+                             "          image: " + imageRepo + ":latest\n" +
                "          imagePullPolicy: Always\n" +
                "          ports:\n" +
                "            - containerPort: 80\n" +
@@ -727,6 +746,16 @@ public class ProvisioningService {
             sanitized = sanitized.substring(0, maxLen).replaceAll("-+$", "");
         }
         return sanitized;
+    }
+
+    private String generateImageRepository(String repoName) {
+        if (repoName.endsWith("-backend")) {
+            return "devopspaxarisglobalrepo/" + repoName + "-backend";
+        }
+        if (repoName.endsWith("-frontend")) {
+            return "devopspaxarisglobalrepo/" + repoName + "-frontend";
+        }
+        return "devopspaxarisglobalrepo/" + repoName;
     }
 
     private void updatePaxoRepo(String fileName, String content) throws Exception {
