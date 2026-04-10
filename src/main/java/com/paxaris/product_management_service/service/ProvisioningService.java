@@ -650,13 +650,14 @@ public class ProvisioningService {
     private String generateBackendManifest(String repoName) {
         String k8Name = toK8sName(repoName, 63);
         String imageRepo = generateImageRepository(repoName);
+         String imageUpdaterAlias = "app";
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
                "  name: " + k8Name + "\n" +
                "  annotations:\n" +
-               "    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/" + repoName + "\n" +
-               "    argocd-image-updater.argoproj.io/" + repoName + ".update-strategy: latest\n" +
+             "    argocd-image-updater.argoproj.io/image-list: " + imageUpdaterAlias + "=" + imageRepo + "\n" +
+             "    argocd-image-updater.argoproj.io/" + imageUpdaterAlias + ".update-strategy: latest\n" +
                "spec:\n" +
                "  replicas: 2\n" +
                "  selector:\n" +
@@ -694,14 +695,15 @@ public class ProvisioningService {
 
     private String generateFrontendManifest(String repoName) {
          String k8Name = toK8sName(repoName, 63);
-            String imageRepo = generateImageRepository(repoName);
+                        String imageRepo = generateImageRepository(repoName);
+                        String imageUpdaterAlias = "app";
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
              "  name: " + k8Name + "\n" +
                "  annotations:\n" +
-               "    argocd-image-updater.argoproj.io/image-list: devopspaxarisglobalrepo/" + repoName + "\n" +
-               "    argocd-image-updater.argoproj.io/" + repoName + ".update-strategy: latest\n" +
+                             "    argocd-image-updater.argoproj.io/image-list: " + imageUpdaterAlias + "=" + imageRepo + "\n" +
+                             "    argocd-image-updater.argoproj.io/" + imageUpdaterAlias + ".update-strategy: latest\n" +
                "spec:\n" +
                "  replicas: 2\n" +
                "  selector:\n" +
