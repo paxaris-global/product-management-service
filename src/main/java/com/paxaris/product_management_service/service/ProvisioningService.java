@@ -749,12 +749,7 @@ public class ProvisioningService {
     }
 
     private String generateImageRepository(String repoName) {
-        if (repoName.endsWith("-backend")) {
-            return "devopspaxarisglobalrepo/" + repoName + "-backend";
-        }
-        if (repoName.endsWith("-frontend")) {
-            return "devopspaxarisglobalrepo/" + repoName + "-frontend";
-        }
+        // repoName already contains the backend/frontend suffix when applicable.
         return "devopspaxarisglobalrepo/" + repoName;
     }
 
