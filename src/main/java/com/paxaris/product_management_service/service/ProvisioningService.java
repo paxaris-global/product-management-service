@@ -737,8 +737,14 @@ public class ProvisioningService {
     }
 
     private String generateImageRepository(String repoName) {
-        // repoName already contains the backend/frontend suffix when applicable.
-        return "devopspaxarisglobalrepo/" + repoName;
+        // Docker image repos cannot include underscores; normalize to kebab-case.
+        String normalizedRepo = repoName.toLowerCase(Locale.ROOT)
+                .replace('_', '-')
+                .replaceAll("[^a-z0-9.-]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("^-+", "")
+                .replaceAll("-+$", "");
+        return "devopspaxarisglobalrepo/" + normalizedRepo;
     }
 
     private void updatePaxoRepo(String fileName, String content) throws Exception {
