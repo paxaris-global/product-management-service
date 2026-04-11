@@ -42,6 +42,9 @@ public class ProvisioningService {
     private final String dockerHubUsername;
     private final String dockerHubToken;
 
+    private record BuildSpec(String contextPath, String dockerfilePath) {
+    }
+
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
             @Value("${github.org}") String githubOrg,
@@ -120,8 +123,9 @@ public class ProvisioningService {
     }
 
         private void ensureRepositoryTemplates(String repoName, Path tempDir) throws IOException {
-                boolean isBackend = repoName.endsWith("-backend");
-                int containerPort = isBackend ? 8080 : 80;
+            boolean isBackend = repoName.endsWith("-backend");
+            int containerPort = isBackend ? 8080 : 80;
+            BuildSpec buildSpec = resolveBuildSpec(tempDir, isBackend);
 
                 Path dockerfilePath = tempDir.resolve("Dockerfile");
                 if (Files.notExists(dockerfilePath)) {
@@ -142,7 +146,10 @@ public class ProvisioningService {
 
                 // Always enforce the managed workflow so image naming and architectures stay consistent.
                 Path workflowPath = workflowsDir.resolve("gitops-deploy.yml");
-                Files.writeString(workflowPath, generateRepositoryWorkflow(repoName));
+                Files.writeString(
+                    workflowPath,
+                    generateRepositoryWorkflow(repoName, buildSpec.contextPath(), buildSpec.dockerfilePath())
+                );
                 log.info("Ensured managed CI workflow for {}", repoName);
 
                 // Remove legacy trigger workflow from uploaded templates (it appends extra suffixes).
@@ -226,7 +233,7 @@ public class ProvisioningService {
                                 """.formatted(k8Name, k8Name, k8Name, k8Name, imageRepo, containerPort, k8Name, k8Name, containerPort, containerPort);
         }
 
-        private String generateRepositoryWorkflow(String repoName) {
+        private String generateRepositoryWorkflow(String repoName, String buildContextPath, String dockerfilePath) {
             String imageRepo = generateImageRepository(repoName);
                 return """
                                 name: Build Push And GitOps Update
@@ -246,33 +253,33 @@ public class ProvisioningService {
                                         runs-on: ubuntu-latest
                                         steps:
                                             - name: Checkout
-                                                uses: actions/checkout@v4
+                                              uses: actions/checkout@v4
 
                                             - name: Set image variables
-                                                id: vars
-                                                run: |
+                                              id: vars
+                                              run: |
                                                     IMAGE_REPO="%s"
                                                     IMAGE_TAG="${GITHUB_SHA}"
                                                     echo "image_repo=$IMAGE_REPO" >> "$GITHUB_OUTPUT"
                                                     echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
                                             - name: Login to Docker Hub
-                                                uses: docker/login-action@v3
-                                                with:
+                                              uses: docker/login-action@v3
+                                              with:
                                                     username: ${{ vars.DOCKERHUB_USERNAME }}
                                                     password: ${{ vars.DOCKERHUB_TOKEN }}
 
                                             - name: Set up Docker Buildx
-                                                uses: docker/setup-buildx-action@v3
+                                              uses: docker/setup-buildx-action@v3
 
                                             - name: Set up QEMU
-                                                uses: docker/setup-qemu-action@v3
+                                              uses: docker/setup-qemu-action@v3
 
                                             - name: Build and push image
-                                                uses: docker/build-push-action@v6
-                                                with:
-                                                    context: .
-                                                    file: ./Dockerfile
+                                              uses: docker/build-push-action@v6
+                                              with:
+                                                    context: %s
+                                                    file: %s
                                                     platforms: linux/amd64,linux/arm64
                                                     push: true
                                                     tags: |
@@ -280,12 +287,12 @@ public class ProvisioningService {
                                                         ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}
 
                                             - name: Update k8 image tag
-                                                run: |
-                                                    sed -i.bak "s|^[[:space:]]*image:[[:space:]].*|          image: ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}|" k8/deployment.yaml
+                                              run: |
+                                                    sed -E -i.bak "s|^([[:space:]]*)image:[[:space:]].*|\\1image: ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}|" k8/deployment.yaml
                                                     rm -f k8/deployment.yaml.bak
 
                                             - name: Commit and push manifest changes
-                                                run: |
+                                              run: |
                                                     if git diff --quiet; then
                                                         echo "No manifest changes to commit"
                                                         exit 0
@@ -295,8 +302,50 @@ public class ProvisioningService {
                                                     git add k8/deployment.yaml
                                                     git commit -m "ci: update image tag [skip ci]"
                                                     git push
-                                """.formatted(imageRepo);
+                                """.formatted(imageRepo, buildContextPath, dockerfilePath);
         }
+
+    private BuildSpec resolveBuildSpec(Path tempDir, boolean isBackend) throws IOException {
+        String manifestFileName = isBackend ? "pom.xml" : "package.json";
+
+        if (Files.exists(tempDir.resolve(manifestFileName)) && Files.exists(tempDir.resolve("Dockerfile"))) {
+            return new BuildSpec(".", "./Dockerfile");
+        }
+
+        String conventionalAppDir = isBackend ? "backend" : "frontend";
+        Path conventionalDir = tempDir.resolve(conventionalAppDir);
+        if (Files.exists(conventionalDir.resolve(manifestFileName)) && Files.exists(conventionalDir.resolve("Dockerfile"))) {
+            return new BuildSpec("./" + conventionalAppDir, "./" + conventionalAppDir + "/Dockerfile");
+        }
+
+        try (var children = Files.list(tempDir)) {
+            List<Path> childDirs = children
+                    .filter(Files::isDirectory)
+                    .filter(path -> !path.getFileName().toString().equals(".github"))
+                    .filter(path -> !path.getFileName().toString().equals("k8"))
+                    .filter(path -> !path.getFileName().toString().equals("__MACOSX"))
+                    .toList();
+
+            for (Path childDir : childDirs) {
+                Path childManifest = childDir.resolve(manifestFileName);
+                Path childDockerfile = childDir.resolve("Dockerfile");
+                if (Files.exists(childManifest) && Files.exists(childDockerfile)) {
+                    String rel = tempDir.relativize(childDir).toString().replace("\\", "/");
+                    return new BuildSpec("./" + rel, "./" + rel + "/Dockerfile");
+                }
+
+                Path nestedConventionalDir = childDir.resolve(conventionalAppDir);
+                Path nestedManifest = nestedConventionalDir.resolve(manifestFileName);
+                Path nestedDockerfile = nestedConventionalDir.resolve("Dockerfile");
+                if (Files.exists(nestedManifest) && Files.exists(nestedDockerfile)) {
+                    String rel = tempDir.relativize(nestedConventionalDir).toString().replace("\\", "/");
+                    return new BuildSpec("./" + rel, "./" + rel + "/Dockerfile");
+                }
+            }
+        }
+
+        return new BuildSpec(".", "./Dockerfile");
+    }
 
     public String generateRepositoryName(String realmName, String adminUsername, String productName) {
         String adminPart = adminUsername != null ? adminUsername : defaultAdminUsername;
