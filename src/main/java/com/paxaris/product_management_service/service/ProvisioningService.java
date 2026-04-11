@@ -83,13 +83,37 @@ public class ProvisioningService {
 
         createRepo(normalizedRepoName);
         waitForRepositoryReady(normalizedRepoName);
+                configureRepositoryActions(normalizedRepoName);
         Path tempDir = unzip(zipFile);
-                    setRepoGithubActionsVariables(normalizedRepoName);
+                setRepoGithubActionsVariables(normalizedRepoName);
                 ensureRepositoryTemplates(normalizedRepoName, tempDir);
         uploadDirectoryToGitHub(tempDir, normalizedRepoName);
         generateAndDeployManifests(normalizedRepoName, tempDir);
         return tempDir;
     }
+
+        private void configureRepositoryActions(String repoName) throws IOException {
+                String actionsPermissionsUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/permissions";
+                String workflowPermissionsUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/permissions/workflow";
+
+                String actionsPermissionsBody = """
+                                {
+                                    "enabled": true,
+                                    "allowed_actions": "all"
+                                }
+                                """;
+
+                String workflowPermissionsBody = """
+                                {
+                                    "default_workflow_permissions": "write",
+                                    "can_approve_pull_request_reviews": true
+                                }
+                                """;
+
+                sendRequest("PUT", actionsPermissionsUrl, actionsPermissionsBody);
+                sendRequest("PUT", workflowPermissionsUrl, workflowPermissionsBody);
+                log.info("Configured GitHub Actions permissions for {}/{}", githubOrg, repoName);
+        }
 
     private void waitForRepositoryReady(String repoName) throws IOException {
         String repoUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName;
@@ -377,34 +401,29 @@ public class ProvisioningService {
         // --------------------------------------------------
         // SET GITHUB ACTIONS VARIABLES (DockerHub)
         // --------------------------------------------------
-        private void setRepoGithubActionsVariables(String repoName) {
+        private void setRepoGithubActionsVariables(String repoName) throws IOException {
             if (dockerHubUsername == null || dockerHubUsername.isBlank()
                     || dockerHubToken == null || dockerHubToken.isBlank()) {
-                log.warn("Docker Hub credentials not configured. Skipping GitHub Actions variable injection for {}", repoName);
-                return;
+                throw new IllegalStateException("Docker Hub credentials are missing (DOCKER_USERNAME / DOCKER_PASSWORD)");
             }
-            try {
-                Map<String, String> variables = new LinkedHashMap<>();
-                variables.put("DOCKERHUB_USERNAME", dockerHubUsername);
-                variables.put("DOCKERHUB_TOKEN", dockerHubToken);
-                for (Map.Entry<String, String> entry : variables.entrySet()) {
-                    String baseUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/variables";
-                    String createBody = "{\"name\":\"" + entry.getKey() + "\",\"value\":\"" + entry.getValue() + "\"}";
-                    try {
-                        sendRequest("POST", baseUrl, createBody);
-                    } catch (RuntimeException ex) {
-                        if (ex.getMessage().contains("(409)")) {
-                            String updateUrl = baseUrl + "/" + entry.getKey();
-                            String updateBody = "{\"name\":\"" + entry.getKey() + "\",\"value\":\"" + entry.getValue() + "\"}";
-                            sendRequest("PATCH", updateUrl, updateBody);
-                        } else {
-                            throw ex;
-                        }
+            Map<String, String> variables = new LinkedHashMap<>();
+            variables.put("DOCKERHUB_USERNAME", dockerHubUsername);
+            variables.put("DOCKERHUB_TOKEN", dockerHubToken);
+            for (Map.Entry<String, String> entry : variables.entrySet()) {
+                String baseUrl = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName + "/actions/variables";
+                String createBody = "{\"name\":\"" + entry.getKey() + "\",\"value\":\"" + entry.getValue() + "\"}";
+                try {
+                    sendRequest("POST", baseUrl, createBody);
+                } catch (RuntimeException ex) {
+                    if (ex.getMessage().contains("(409)")) {
+                        String updateUrl = baseUrl + "/" + entry.getKey();
+                        String updateBody = "{\"name\":\"" + entry.getKey() + "\",\"value\":\"" + entry.getValue() + "\"}";
+                        sendRequest("PATCH", updateUrl, updateBody);
+                    } else {
+                        throw ex;
                     }
-                    log.info("Set GitHub Actions variable {} for repo {}", entry.getKey(), repoName);
                 }
-            } catch (Exception e) {
-                log.error("Failed to set GitHub Actions variables for {}: {}", repoName, e.getMessage());
+                log.info("Set GitHub Actions variable {} for repo {}", entry.getKey(), repoName);
             }
         }
 
