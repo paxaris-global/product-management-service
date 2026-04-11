@@ -111,7 +111,19 @@ public class ProvisioningService {
                                 """;
 
                 sendRequest("PUT", actionsPermissionsUrl, actionsPermissionsBody);
-                sendRequest("PUT", workflowPermissionsUrl, workflowPermissionsBody);
+                try {
+                        sendRequest("PUT", workflowPermissionsUrl, workflowPermissionsBody);
+                } catch (RuntimeException ex) {
+                        // 409 = org-level enforcement blocks per-repo default_workflow_permissions override.
+                        // Inline `permissions: contents: write` in the generated workflow YAML takes precedence,
+                        // so this setting is not required for the pipeline to work.
+                        if (ex.getMessage() != null && ex.getMessage().contains("(409)")) {
+                                log.warn("⚠️ Skipping workflow permissions update for {} (org policy blocks it, inline workflow permissions apply): {}",
+                                        repoName, ex.getMessage().lines().findFirst().orElse("conflict"));
+                        } else {
+                                throw ex;
+                        }
+                }
                 log.info("Configured GitHub Actions permissions for {}/{}", githubOrg, repoName);
         }
 
