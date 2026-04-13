@@ -630,6 +630,14 @@ public class ProvisioningService {
     // GENERIC HTTP HELPER
     // --------------------------------------------------
     private JsonNode sendRequest(String method, String urlStr, String jsonBody) throws IOException {
+
+        // Log the GitHub token (partially, for security)
+        if (githubToken != null && githubToken.length() > 10) {
+            log.info("[DEBUG] Using GITHUB_TOKEN: {}...{} (length: {})", githubToken.substring(0, 6), githubToken.substring(githubToken.length() - 4), githubToken.length());
+        } else {
+            log.info("[DEBUG] Using GITHUB_TOKEN: {} (length: {})", githubToken, githubToken != null ? githubToken.length() : 0);
+        }
+
         HttpRequest.BodyPublisher bodyPublisher = jsonBody == null
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8);
