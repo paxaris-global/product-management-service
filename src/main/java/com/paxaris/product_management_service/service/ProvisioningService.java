@@ -631,7 +631,7 @@ public class ProvisioningService {
         // Use classic PAT: Authorization: token <token>
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create(urlStr))
-            .header("Authorization", "token " + githubToken)
+            .header("Authorization", "Bearer " + githubToken)
             .header("Accept", "application/vnd.github+json")
             .header("Content-Type", "application/json")
             .method(method, bodyPublisher)
