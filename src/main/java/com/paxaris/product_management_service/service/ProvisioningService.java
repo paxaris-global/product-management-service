@@ -19,7 +19,6 @@ import java.nio.file.*;
 import java.util.Base64;
 import java.util.*;
 
-@Slf4j
 @Service
 public class ProvisioningService {
 
@@ -452,7 +451,7 @@ public class ProvisioningService {
         String body = """
                 {
                   "name": "%s",
-                  "private": true,
+                  "private": false,
                   "auto_init": true
                 }
                 """.formatted(repoName);
