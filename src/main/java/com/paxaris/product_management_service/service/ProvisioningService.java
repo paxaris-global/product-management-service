@@ -2,7 +2,6 @@ package com.paxaris.product_management_service.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.springframework.beans.factory.annotation.Value;
@@ -123,7 +122,6 @@ public class ProvisioningService {
                                 throw ex;
                         }
                 }
-                log.info("Configured GitHub Actions permissions for {}/{}", githubOrg, repoName);
         }
 
     private void waitForRepositoryReady(String repoName) throws IOException {
@@ -135,7 +133,6 @@ public class ProvisioningService {
                 JsonNode repoNode = sendRequest("GET", repoUrl, null);
                 String fullName = repoNode.path("full_name").asText();
                 if (fullName != null && !fullName.isBlank()) {
-                    log.info("Repository is ready on GitHub: {}", fullName);
                     return;
                 }
             } catch (RuntimeException ex) {
@@ -166,14 +163,12 @@ public class ProvisioningService {
                 if (Files.notExists(dockerfilePath)) {
                         String dockerfile = isBackend ? generateBackendDockerfile() : generateFrontendDockerfile();
                         Files.writeString(dockerfilePath, dockerfile);
-                        log.info("Generated default Dockerfile for {}", repoName);
                 }
 
                 Path k8ManifestPath = tempDir.resolve("k8").resolve("deployment.yaml");
                 if (Files.notExists(k8ManifestPath)) {
                         Files.createDirectories(k8ManifestPath.getParent());
                         Files.writeString(k8ManifestPath, generateRepositoryK8Manifest(repoName, containerPort));
-                        log.info("Generated default Kubernetes manifest for {}", repoName);
                 }
 
                 Path workflowsDir = tempDir.resolve(".github").resolve("workflows");
@@ -185,13 +180,11 @@ public class ProvisioningService {
                     workflowPath,
                     generateRepositoryWorkflow(repoName, buildSpec.contextPath(), buildSpec.dockerfilePath())
                 );
-                log.info("Ensured managed CI workflow for {}", repoName);
 
                 // Remove legacy trigger workflow from uploaded templates (it appends extra suffixes).
                 Path legacyTriggerWorkflow = workflowsDir.resolve("trigger.yml");
                 if (Files.exists(legacyTriggerWorkflow)) {
                     Files.delete(legacyTriggerWorkflow);
-                    log.info("Removed legacy trigger workflow for {}", repoName);
                 }
         }
 
@@ -434,7 +427,6 @@ public class ProvisioningService {
                         throw ex;
                     }
                 }
-                log.info("Set GitHub Actions variable {} for repo {}", entry.getKey(), repoName);
             }
         }
 
@@ -504,7 +496,6 @@ public class ProvisioningService {
         }
 
         if (!skippedFiles.isEmpty()) {
-            log.info("Skipped {} generated/oversized files before GitHub upload", skippedFiles.size());
         }
 
         // 2) Read current main branch state to append commits incrementally
@@ -562,7 +553,6 @@ public class ProvisioningService {
                 objectMapper.writeValueAsString(refMap)
         );
 
-        log.info("Successfully pushed {} files to {}/{} in {} commit batches. Head commit: {}",
                 fileRefs.size(), githubOrg, repo, totalBatches, currentCommitSha);
     }
 
@@ -632,10 +622,6 @@ public class ProvisioningService {
 
         // Log the GitHub token (partially, for security)
         if (githubToken != null && githubToken.length() > 10) {
-            log.info("[DEBUG] Using GITHUB_TOKEN: {}...{} (length: {})", githubToken.substring(0, 6), githubToken.substring(githubToken.length() - 4), githubToken.length());
-        } else {
-            log.info("[DEBUG] Using GITHUB_TOKEN: {} (length: {})", githubToken, githubToken != null ? githubToken.length() : 0);
-        }
 
         HttpRequest.BodyPublisher bodyPublisher = jsonBody == null
                 ? HttpRequest.BodyPublishers.noBody()
@@ -889,7 +875,6 @@ public class ProvisioningService {
         }
 
         sendRequest("PUT", contentsUrl, objectMapper.writeValueAsString(updateBody));
-        log.info("Updated {}/{} path {} via GitHub Contents API", paxoOrg, paxoRepo, repoPath);
     }
 
     private void deleteDirectory(Path path) throws IOException {
