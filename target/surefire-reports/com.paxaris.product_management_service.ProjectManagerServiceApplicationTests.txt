@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.paxaris.product_management_service.ProjectManagerServiceApplicationTests
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.580 s -- in com.paxaris.product_management_service.ProjectManagerServiceApplicationTests

@@ -21,6 +21,9 @@ import java.util.*;
 @Service
 public class ProvisioningService {
 
+    // Add SLF4J Logger
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ProvisioningService.class);
+
     private static final int TREE_BATCH_SIZE = 200;
     private static final long MAX_GITHUB_BLOB_BYTES = 50L * 1024 * 1024;
     private static final int REPO_READY_MAX_RETRIES = 20;
@@ -553,7 +556,7 @@ public class ProvisioningService {
                 objectMapper.writeValueAsString(refMap)
         );
 
-                fileRefs.size(), githubOrg, repo, totalBatches, currentCommitSha);
+            // ...existing code...
     }
 
     private BranchState fetchMainBranchState(String repo) throws IOException {
@@ -621,20 +624,20 @@ public class ProvisioningService {
     private JsonNode sendRequest(String method, String urlStr, String jsonBody) throws IOException {
 
         // Log the GitHub token (partially, for security)
-        if (githubToken != null && githubToken.length() > 10) {
+        // (Removed actual logging for security reasons)
 
         HttpRequest.BodyPublisher bodyPublisher = jsonBody == null
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8);
 
-    // Use classic PAT: Authorization: token <token>
-    HttpRequest request = HttpRequest.newBuilder()
-        .uri(URI.create(urlStr))
-        .header("Authorization", "token " + githubToken)
-        .header("Accept", "application/vnd.github+json")
-        .header("Content-Type", "application/json")
-        .method(method, bodyPublisher)
-        .build();
+        // Use classic PAT: Authorization: token <token>
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create(urlStr))
+            .header("Authorization", "token " + githubToken)
+            .header("Accept", "application/vnd.github+json")
+            .header("Content-Type", "application/json")
+            .method(method, bodyPublisher)
+            .build();
 
         HttpResponse<String> response;
         try {

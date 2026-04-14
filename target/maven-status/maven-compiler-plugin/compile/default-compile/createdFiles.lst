@@ -25,4 +25,5 @@ com/paxaris/product_management_service/dto/RoleRequest$RoleRequestBuilder.class
 com/paxaris/product_management_service/exception/RoleNotFoundException.class
 com/paxaris/product_management_service/config/SwaggerConfig.class
 com/paxaris/product_management_service/service/ProvisioningService$FileBlobRef.class
+com/paxaris/product_management_service/service/ProvisioningService$BuildSpec.class
 com/paxaris/product_management_service/entities/RealmProductRole.class
