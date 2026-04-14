@@ -623,8 +623,6 @@ public class ProvisioningService {
     // --------------------------------------------------
     private JsonNode sendRequest(String method, String urlStr, String jsonBody) throws IOException {
 
-        // Log the GitHub token (partially, for security)
-        // (Removed actual logging for security reasons)
 
         HttpRequest.BodyPublisher bodyPublisher = jsonBody == null
                 ? HttpRequest.BodyPublishers.noBody()
