@@ -641,13 +641,14 @@ public class ProvisioningService {
                 ? HttpRequest.BodyPublishers.noBody()
                 : HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(urlStr))
-                .header("Authorization", "Bearer " + githubToken)
-                .header("Accept", "application/vnd.github+json")
-                .header("Content-Type", "application/json")
-                .method(method, bodyPublisher)
-                .build();
+    // Use classic PAT: Authorization: token <token>
+    HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create(urlStr))
+        .header("Authorization", "token " + githubToken)
+        .header("Accept", "application/vnd.github+json")
+        .header("Content-Type", "application/json")
+        .method(method, bodyPublisher)
+        .build();
 
         HttpResponse<String> response;
         try {
