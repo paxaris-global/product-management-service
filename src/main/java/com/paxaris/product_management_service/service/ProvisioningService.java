@@ -245,7 +245,7 @@ public class ProvisioningService {
                                                 - name: dockerhub-secret
                                             containers:
                                                 - name: %s
-                                                    image: %s:latest
+                                                    image: \"%s:latest\"
                                                     imagePullPolicy: Always
                                                     ports:
                                                         - containerPort: %d
@@ -739,7 +739,7 @@ public class ProvisioningService {
                "metadata:\n" +
                "  name: " + k8Name + "\n" +
                "  annotations:\n" +
-             "    argocd-image-updater.argoproj.io/image-list: " + imageUpdaterAlias + "=" + imageRepo + "\n" +
+             "    argocd-image-updater.argoproj.io/image-list: \"" + imageUpdaterAlias + "=" + imageRepo + "\"\n" +
              "    argocd-image-updater.argoproj.io/" + imageUpdaterAlias + ".update-strategy: latest\n" +
                "spec:\n" +
                "  replicas: 2\n" +
@@ -755,7 +755,7 @@ public class ProvisioningService {
                "        - name: dockerhub-secret\n" +
                "      containers:\n" +
                "        - name: " + k8Name + "\n" +
-               "          image: " + imageRepo + ":latest\n" +
+               "          image: \"" + imageRepo + ":latest\"\n" +
                "          imagePullPolicy: Always\n" +
                "          ports:\n" +
                "            - containerPort: 8080\n" +
@@ -785,7 +785,7 @@ public class ProvisioningService {
                "metadata:\n" +
              "  name: " + k8Name + "\n" +
                "  annotations:\n" +
-                             "    argocd-image-updater.argoproj.io/image-list: " + imageUpdaterAlias + "=" + imageRepo + "\n" +
+                             "    argocd-image-updater.argoproj.io/image-list: \"" + imageUpdaterAlias + "=" + imageRepo + "\"\n" +
                              "    argocd-image-updater.argoproj.io/" + imageUpdaterAlias + ".update-strategy: latest\n" +
                "spec:\n" +
                "  replicas: 2\n" +
@@ -801,7 +801,7 @@ public class ProvisioningService {
                              "        - name: dockerhub-secret\n" +
                "      containers:\n" +
              "        - name: " + k8Name + "\n" +
-                             "          image: " + imageRepo + ":latest\n" +
+                             "          image: \"" + imageRepo + ":latest\"\n" +
                "          imagePullPolicy: Always\n" +
                "          ports:\n" +
                "            - containerPort: 80\n" +
