@@ -10,6 +10,9 @@ import lombok.*;
 public class UrlEntry {
     private Long id;  // null → new URL
 
+    /** Optional base URL for gateway forwarding (JSON field {@code url}). */
+    private String url;
+
     private String uri;
     private String httpMethod;
 }

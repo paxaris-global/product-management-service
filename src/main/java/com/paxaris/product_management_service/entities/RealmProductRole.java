@@ -1,7 +1,10 @@
 package com.paxaris.product_management_service.entities;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -26,5 +29,8 @@ public class RealmProductRole {
     @Column(name = "role_name", length = 50, nullable = false)
     private String roleName;
 
-
+    @OneToMany(mappedBy = "role", cascade = CascadeType.ALL, orphanRemoval = false)
+    @JsonManagedReference
+    @Builder.Default
+    private List<RealmProductRoleUrl> urls = new ArrayList<>();
 }

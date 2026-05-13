@@ -1,5 +1,6 @@
 package com.paxaris.product_management_service.service.impl;
 
+import com.paxaris.product_management_service.dto.UrlEntry;
 import com.paxaris.product_management_service.dto.RoleRequest;
 import com.paxaris.product_management_service.entities.HttpMethodType;
 import com.paxaris.product_management_service.entities.RealmProductRole;
@@ -29,9 +30,10 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
 
     @Override
     public void saveOrUpdateRole(RoleRequest request) {
-        logger.info("Starting saveOrUpdateRole for realm='{}', product='{}', role='{}', uri='{}', httpMethod='{}'",
+        logger.info("Starting saveOrUpdateRole for realm='{}', product='{}', role='{}', uri='{}', httpMethod='{}', bulkUrlCount={}",
                 request.getRealmName(), request.getProductName(), request.getRoleName(),
-                request.getUri(), request.getHttpMethod());
+                request.getUri(), request.getHttpMethod(),
+                request.getUrls() != null ? request.getUrls().size() : 0);
 
         // Step 1: Save or Update Role in realm_product_role table
         Optional<RealmProductRole> existingRole =
@@ -61,37 +63,60 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
                     .build();
         }
 
-        // Save the role first
         RealmProductRole savedRole = roleRepository.save(role);
         logger.info("✅ Role saved to realm_product_role table with id='{}'", savedRole.getId());
 
-        String normalizedUri = normalizeUri(request.getUri());
-        HttpMethodType normalizedMethod = parseHttpMethod(request.getHttpMethod());
-
-        // Step 2: Save URI and HTTP Method to RealmProductRoleUrl table if provided
-        if (normalizedUri != null && normalizedMethod != null) {
-            logger.info("Persisting RealmProductRoleUrl: uri='{}', httpMethod='{}', roleId='{}'",
-                    normalizedUri, normalizedMethod, savedRole.getId());
-
-            RealmProductRoleUrl roleUrl = urlRepository
-                    .findByRoleAndUriAndHttpMethod(savedRole, normalizedUri, normalizedMethod)
-                    .orElseGet(() -> RealmProductRoleUrl.builder()
-                            .role(savedRole)
-                            .uri(normalizedUri)
-                            .httpMethod(normalizedMethod)
-                            .build());
-
-            roleUrl.setRole(savedRole);
-            roleUrl.setUri(normalizedUri);
-            roleUrl.setHttpMethod(normalizedMethod);
-
-            RealmProductRoleUrl savedUrl = urlRepository.save(roleUrl);
-            logger.info("Saved to realm_product_role_url table -> id='{}', uri='{}', httpMethod='{}', roleId='{}'",
-                    savedUrl.getId(), savedUrl.getUri(), savedUrl.getHttpMethod(), savedRole.getId());
-        } else {
-            logger.warn("Skipping realm_product_role_url save because uri/httpMethod missing or invalid. uri='{}', httpMethod='{}'",
-                    request.getUri(), request.getHttpMethod());
+        if (request.getUrls() != null && !request.getUrls().isEmpty()) {
+            for (UrlEntry entry : request.getUrls()) {
+                persistOneRoleUrl(
+                    savedRole,
+                    entry.getUri(),
+                    entry.getHttpMethod(),
+                    entry.getUrl()
+                );
+            }
+            return;
         }
+
+        persistOneRoleUrl(savedRole, request.getUri(), request.getHttpMethod(), null);
+    }
+
+    private void persistOneRoleUrl(
+        RealmProductRole savedRole,
+        String uriRaw,
+        String httpRaw,
+        String serviceBaseUrlRaw
+    ) {
+        String normalizedUri = normalizeUri(uriRaw);
+        HttpMethodType normalizedMethod = parseHttpMethod(httpRaw);
+
+        if (normalizedUri == null || normalizedMethod == null) {
+            logger.warn("Skipping realm_product_role_url row: uri='{}', httpMethod='{}'", uriRaw, httpRaw);
+            return;
+        }
+
+        String base =
+            serviceBaseUrlRaw != null && !serviceBaseUrlRaw.isBlank() ? serviceBaseUrlRaw.trim() : null;
+
+        logger.info("Persisting RealmProductRoleUrl: uri='{}', httpMethod='{}', serviceBaseUrl='{}', roleId='{}'",
+            normalizedUri, normalizedMethod, base, savedRole.getId());
+
+        RealmProductRoleUrl roleUrl = urlRepository
+            .findByRoleAndUriAndHttpMethod(savedRole, normalizedUri, normalizedMethod)
+            .orElseGet(() -> RealmProductRoleUrl.builder()
+                .role(savedRole)
+                .uri(normalizedUri)
+                .httpMethod(normalizedMethod)
+                .build());
+
+        roleUrl.setRole(savedRole);
+        roleUrl.setUri(normalizedUri);
+        roleUrl.setHttpMethod(normalizedMethod);
+        roleUrl.setServiceBaseUrl(base);
+
+        RealmProductRoleUrl savedUrl = urlRepository.save(roleUrl);
+        logger.info("Saved to realm_product_role_url -> id='{}', uri='{}', httpMethod='{}', roleId='{}'",
+            savedUrl.getId(), savedUrl.getUri(), savedUrl.getHttpMethod(), savedRole.getId());
     }
 
     private HttpMethodType parseHttpMethod(String method) {
@@ -127,7 +152,7 @@ public class RealmProductRoleUrlServiceImpl implements RealmProductRoleUrlServic
 
     @Override
     public List<RealmProductRole> getAll() {
-        return roleRepository.findAll();
+        return roleRepository.findAllWithUrls();
     }
 
     @Override

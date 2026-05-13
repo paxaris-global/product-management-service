@@ -1,6 +1,7 @@
 package com.paxaris.product_management_service.entities;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -24,9 +25,17 @@ public class RealmProductRoleUrl {
     @Column(name = "uri", length = 191, nullable = false)
     private String uri;
 
+    /**
+     * Gateway forwards matching requests to {@code serviceBaseUrl + requestPath}.
+     * Serialized as {@code url} for API Gateway compatibility.
+     */
+    @Column(name = "service_base_url", length = 512)
+    @JsonProperty("url")
+    private String serviceBaseUrl;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "role_id", nullable = false)
-    @JsonIgnore
+    @JsonBackReference
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private RealmProductRole role;
