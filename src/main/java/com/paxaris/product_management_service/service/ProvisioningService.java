@@ -2,6 +2,9 @@ package com.paxaris.product_management_service.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.paxaris.product_management_service.dto.ProductProvisioningResponse;
+import com.paxaris.product_management_service.entities.ProductUrlMapping;
+import com.paxaris.product_management_service.repository.ProductUrlMappingRepository;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +31,7 @@ public class ProvisioningService {
     private static final long MAX_GITHUB_BLOB_BYTES = 50L * 1024 * 1024;
     private static final int REPO_READY_MAX_RETRIES = 20;
     private static final long REPO_READY_RETRY_DELAY_MS = 1500;
+    private static final Set<Integer> RESERVED_NODE_PORTS = Set.of(32080, 32087, 32088, 31686, 30417, 30418);
     private static final List<String> SKIPPED_PATH_SEGMENTS = List.of(
             "/.git/", "/node_modules/", "/target/", "/build/", "/dist/", "/out/", "/.idea/", "/.vscode/"
     );
@@ -42,6 +46,13 @@ public class ProvisioningService {
     private final HttpClient httpClient;
     private final String dockerHubUsername;
     private final String dockerHubToken;
+    private final ProductUrlMappingRepository productUrlMappingRepository;
+    private final String externalUrlScheme;
+    private final String externalHost;
+    private final int frontendNodePortStart;
+    private final int frontendNodePortEnd;
+    private final int backendNodePortStart;
+    private final int backendNodePortEnd;
 
     private record BuildSpec(String contextPath, String dockerfilePath) {
     }
@@ -54,7 +65,14 @@ public class ProvisioningService {
             @Value("${paxo.org:paxaris-global}") String paxoOrg,
             @Value("${paxo.repo:paxo}") String paxoRepo,
             @Value("${docker.hub.username:}") String dockerHubUsername,
-            @Value("${docker.hub.token:}") String dockerHubToken) {
+            @Value("${docker.hub.token:}") String dockerHubToken,
+            ProductUrlMappingRepository productUrlMappingRepository,
+            @Value("${provisioning.external-url-scheme:http}") String externalUrlScheme,
+            @Value("${provisioning.external-host:192.168.49.2}") String externalHost,
+            @Value("${provisioning.frontend-node-port-start:32100}") int frontendNodePortStart,
+            @Value("${provisioning.frontend-node-port-end:32399}") int frontendNodePortEnd,
+            @Value("${provisioning.backend-node-port-start:32400}") int backendNodePortStart,
+            @Value("${provisioning.backend-node-port-end:32699}") int backendNodePortEnd) {
         this.githubToken = githubToken;
         this.githubOrg = githubOrg;
         this.githubApiBaseUrl = githubApiBaseUrl;
@@ -65,6 +83,13 @@ public class ProvisioningService {
         this.httpClient = HttpClient.newHttpClient();
         this.dockerHubUsername = dockerHubUsername;
         this.dockerHubToken = dockerHubToken;
+        this.productUrlMappingRepository = productUrlMappingRepository;
+        this.externalUrlScheme = externalUrlScheme;
+        this.externalHost = externalHost;
+        this.frontendNodePortStart = frontendNodePortStart;
+        this.frontendNodePortEnd = frontendNodePortEnd;
+        this.backendNodePortStart = backendNodePortStart;
+        this.backendNodePortEnd = backendNodePortEnd;
     }
 
     public String getGithubToken() {
@@ -80,6 +105,48 @@ public class ProvisioningService {
      * incremental commits to avoid large Git tree payloads.
      */
     public Path provision(String repoName, MultipartFile zipFile) throws Exception {
+        return provisionRepositoryInternal(repoName, zipFile, null, null);
+    }
+
+    public ProductProvisioningResponse provisionProduct(
+            String realmName,
+            String productId,
+            String backendRepoName,
+            String frontendRepoName,
+            MultipartFile backendZip,
+            MultipartFile frontendZip
+    ) throws Exception {
+        String normalizedBackendRepo = normalizeRepositoryName(backendRepoName);
+        String normalizedFrontendRepo = normalizeRepositoryName(frontendRepoName);
+        ProductUrlMapping mapping = allocateAndSaveProductUrls(realmName, productId);
+
+        provisionRepositoryInternal(normalizedBackendRepo, backendZip, mapping.getBackendNodePort(), null);
+        provisionRepositoryInternal(
+            normalizedFrontendRepo,
+            frontendZip,
+            mapping.getFrontendNodePort(),
+            toK8sName(normalizedBackendRepo, 63)
+        );
+
+        return new ProductProvisioningResponse(
+            "success",
+            realmName,
+            productId,
+            normalizedBackendRepo,
+            normalizedFrontendRepo,
+            mapping.getFrontendNodePort(),
+            mapping.getBackendNodePort(),
+            mapping.getFrontendBaseUrl(),
+            mapping.getBackendBaseUrl()
+        );
+    }
+
+    private Path provisionRepositoryInternal(
+            String repoName,
+            MultipartFile zipFile,
+            Integer nodePort,
+            String frontendBackendServiceName
+    ) throws Exception {
         String normalizedRepoName = normalizeRepositoryName(repoName);
 
         createRepo(normalizedRepoName);
@@ -87,9 +154,12 @@ public class ProvisioningService {
                 configureRepositoryActions(normalizedRepoName);
         Path tempDir = unzip(zipFile);
                 setRepoGithubActionsVariables(normalizedRepoName);
-                ensureRepositoryTemplates(normalizedRepoName, tempDir);
+                if (frontendBackendServiceName != null && !frontendBackendServiceName.isBlank()) {
+                    rewriteFrontendBackendUpstream(tempDir, frontendBackendServiceName);
+                }
+                ensureRepositoryTemplates(normalizedRepoName, tempDir, nodePort);
         uploadDirectoryToGitHub(tempDir, normalizedRepoName);
-        generateAndDeployManifests(normalizedRepoName, tempDir);
+        generateAndDeployManifests(normalizedRepoName, tempDir, nodePort);
         return tempDir;
     }
 
@@ -157,7 +227,7 @@ public class ProvisioningService {
                 lastError);
     }
 
-        private void ensureRepositoryTemplates(String repoName, Path tempDir) throws IOException {
+        private void ensureRepositoryTemplates(String repoName, Path tempDir, Integer nodePort) throws IOException {
             boolean isBackend = repoName.endsWith("-backend");
             int containerPort = isBackend ? 8080 : 80;
             BuildSpec buildSpec = resolveBuildSpec(tempDir, isBackend);
@@ -169,9 +239,9 @@ public class ProvisioningService {
                 }
 
                 Path k8ManifestPath = tempDir.resolve("k8").resolve("deployment.yaml");
-                if (Files.notExists(k8ManifestPath)) {
+                if (Files.notExists(k8ManifestPath) || nodePort != null) {
                         Files.createDirectories(k8ManifestPath.getParent());
-                        Files.writeString(k8ManifestPath, generateRepositoryK8Manifest(repoName, containerPort));
+                        Files.writeString(k8ManifestPath, generateRepositoryK8Manifest(repoName, containerPort, nodePort));
                 }
 
                 Path workflowsDir = tempDir.resolve(".github").resolve("workflows");
@@ -223,9 +293,11 @@ public class ProvisioningService {
                                 """;
         }
 
-        private String generateRepositoryK8Manifest(String repoName, int containerPort) {
+        private String generateRepositoryK8Manifest(String repoName, int containerPort, Integer nodePort) {
             String k8Name = toK8sName(repoName, 63);
             String imageRepo = generateImageRepository(repoName);
+            String nodePortBlock = nodePort != null ? "            nodePort: " + nodePort + "\n" : "";
+            String serviceType = nodePort != null ? "NodePort" : "ClusterIP";
                 return """
                                 apiVersion: apps/v1
                                 kind: Deployment
@@ -260,8 +332,21 @@ public class ProvisioningService {
                                     ports:
                                         - port: %d
                                             targetPort: %d
-                                    type: ClusterIP
-                                """.formatted(k8Name, k8Name, k8Name, k8Name, imageRepo, containerPort, k8Name, k8Name, containerPort, containerPort);
+%s                                    type: %s
+                                """.formatted(
+                                    k8Name,
+                                    k8Name,
+                                    k8Name,
+                                    k8Name,
+                                    imageRepo,
+                                    containerPort,
+                                    k8Name,
+                                    k8Name,
+                                    containerPort,
+                                    containerPort,
+                                    nodePortBlock,
+                                    serviceType
+                                );
         }
 
         private String generateRepositoryWorkflow(String repoName, String buildContextPath, String dockerfilePath) {
@@ -692,13 +777,13 @@ public class ProvisioningService {
     // --------------------------------------------------
     // GENERATE AND DEPLOY K8S MANIFESTS
     // --------------------------------------------------
-    private void generateAndDeployManifests(String repoName, Path tempDir) throws Exception {
+    private void generateAndDeployManifests(String repoName, Path tempDir, Integer nodePort) throws Exception {
         if (repoName.endsWith("-backend")) {
-            String manifest = generateBackendManifest(repoName);
+            String manifest = generateBackendManifest(repoName, nodePort);
             updatePaxoRepo(repoName + "-deployment.yaml", manifest);
                         updatePaxoRepo("generated-apps/" + repoName + "-app.yaml", generateArgoApplicationManifest(repoName));
         } else if (repoName.endsWith("-frontend")) {
-            String manifest = generateFrontendManifest(repoName);
+            String manifest = generateFrontendManifest(repoName, nodePort);
             updatePaxoRepo(repoName + "-deployment.yaml", manifest);
                         updatePaxoRepo("generated-apps/" + repoName + "-app.yaml", generateArgoApplicationManifest(repoName));
         }
@@ -730,10 +815,12 @@ public class ProvisioningService {
                                 """.formatted(appName, githubOrg, repoName);
         }
 
-    private String generateBackendManifest(String repoName) {
+    private String generateBackendManifest(String repoName, Integer nodePort) {
         String k8Name = toK8sName(repoName, 63);
         String imageRepo = generateImageRepository(repoName);
          String imageUpdaterAlias = "app";
+        String nodePortLine = nodePort != null ? "      nodePort: " + nodePort + "\n" : "";
+        String serviceType = nodePort != null ? "NodePort" : "ClusterIP";
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
@@ -773,13 +860,16 @@ public class ProvisioningService {
                "  ports:\n" +
                "    - port: 8080\n" +
                "      targetPort: 8080\n" +
-               "  type: ClusterIP\n";
+               nodePortLine +
+               "  type: " + serviceType + "\n";
     }
 
-    private String generateFrontendManifest(String repoName) {
+    private String generateFrontendManifest(String repoName, Integer nodePort) {
          String k8Name = toK8sName(repoName, 63);
                         String imageRepo = generateImageRepository(repoName);
                         String imageUpdaterAlias = "app";
+        String nodePortLine = nodePort != null ? "      nodePort: " + nodePort + "\n" : "";
+        String serviceType = nodePort != null ? "NodePort" : "ClusterIP";
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
@@ -816,7 +906,94 @@ public class ProvisioningService {
                "  ports:\n" +
                "    - port: 80\n" +
                "      targetPort: 80\n" +
-               "  type: ClusterIP\n";
+               nodePortLine +
+               "  type: " + serviceType + "\n";
+    }
+
+    private synchronized ProductUrlMapping allocateAndSaveProductUrls(String realmName, String productId) {
+        if (realmName == null || realmName.isBlank()) {
+            throw new IllegalArgumentException("Realm name cannot be blank");
+        }
+        if (productId == null || productId.isBlank()) {
+            throw new IllegalArgumentException("Product ID cannot be blank");
+        }
+
+        Optional<ProductUrlMapping> existing =
+                productUrlMappingRepository.findByRealmNameAndProductId(realmName, productId);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        Set<Integer> usedPorts = new HashSet<>(RESERVED_NODE_PORTS);
+        usedPorts.addAll(productUrlMappingRepository.findFrontendNodePorts());
+        usedPorts.addAll(productUrlMappingRepository.findBackendNodePorts());
+
+        int frontendNodePort = nextAvailablePort(frontendNodePortStart, frontendNodePortEnd, usedPorts);
+        usedPorts.add(frontendNodePort);
+        int backendNodePort = nextAvailablePort(backendNodePortStart, backendNodePortEnd, usedPorts);
+
+        ProductUrlMapping mapping = ProductUrlMapping.builder()
+                .realmName(realmName)
+                .productId(productId)
+                .frontendNodePort(frontendNodePort)
+                .backendNodePort(backendNodePort)
+                .frontendBaseUrl(buildExternalUrl(frontendNodePort))
+                .backendBaseUrl(buildExternalUrl(backendNodePort))
+                .build();
+
+        return productUrlMappingRepository.save(mapping);
+    }
+
+    private int nextAvailablePort(int start, int end, Set<Integer> usedPorts) {
+        if (start < 30000 || end > 32767 || start > end) {
+            throw new IllegalStateException("Invalid Kubernetes NodePort range: " + start + "-" + end);
+        }
+        for (int port = start; port <= end; port++) {
+            if (!usedPorts.contains(port)) {
+                return port;
+            }
+        }
+        throw new IllegalStateException("No available NodePort in configured range: " + start + "-" + end);
+    }
+
+    private String buildExternalUrl(int nodePort) {
+        String scheme = (externalUrlScheme == null || externalUrlScheme.isBlank()) ? "http" : externalUrlScheme.trim();
+        String host = (externalHost == null || externalHost.isBlank()) ? "192.168.49.2" : externalHost.trim();
+        host = host.replaceFirst("^https?://", "").replaceAll("/+$", "");
+        return scheme + "://" + host + ":" + nodePort;
+    }
+
+    private void rewriteFrontendBackendUpstream(Path root, String backendServiceName) throws IOException {
+        List<String> candidateNames = List.of(
+                "nginx.conf",
+                "default.conf",
+                "default.template",
+                "environment.ts",
+                "environment.prod.ts",
+                "proxy.conf.json",
+                "proxy.conf.js"
+        );
+
+        try (var paths = Files.walk(root)) {
+            paths.filter(Files::isRegularFile)
+                    .filter(path -> candidateNames.contains(path.getFileName().toString()))
+                    .forEach(path -> replaceBackendServiceReference(path, backendServiceName));
+        }
+    }
+
+    private void replaceBackendServiceReference(Path path, String backendServiceName) {
+        try {
+            String content = Files.readString(path);
+            String updated = content
+                    .replace("http://backend:8080", "http://" + backendServiceName + ":8080")
+                    .replace("backend:8080", backendServiceName + ":8080");
+            if (!content.equals(updated)) {
+                Files.writeString(path, updated);
+                log.info("Updated frontend backend upstream in {} to {}", path, backendServiceName);
+            }
+        } catch (IOException ex) {
+            throw new RuntimeException("Failed to update frontend backend upstream in " + path, ex);
+        }
     }
 
     private String toK8sName(String raw, int maxLen) {

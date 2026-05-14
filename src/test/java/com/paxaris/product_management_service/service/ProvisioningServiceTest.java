@@ -1,8 +1,10 @@
 package com.paxaris.product_management_service.service;
 
+import com.paxaris.product_management_service.repository.ProductUrlMappingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -12,6 +14,9 @@ import static org.junit.jupiter.api.Assertions.*;
 class ProvisioningServiceTest {
 
     private ProvisioningService provisioningService;
+
+    @Mock
+    private ProductUrlMappingRepository productUrlMappingRepository;
 
     @BeforeEach
     void setUp() {
@@ -24,7 +29,14 @@ class ProvisioningServiceTest {
             "paxaris-global",
             "paxo",
             "",
-            ""
+            "",
+            productUrlMappingRepository,
+            "http",
+            "192.168.49.2",
+            32100,
+            32399,
+            32400,
+            32699
         );
     }
 
@@ -87,7 +99,14 @@ class ProvisioningServiceTest {
             "paxaris-global",
             "paxo",
             "",
-            ""
+            "",
+            productUrlMappingRepository,
+            "http",
+            "192.168.49.2",
+            32100,
+            32399,
+            32400,
+            32699
         );
 
         MockMultipartFile dummyFile = new MockMultipartFile(
@@ -112,7 +131,14 @@ class ProvisioningServiceTest {
             "paxaris-global",
             "paxo",
             "",
-            ""
+            "",
+            productUrlMappingRepository,
+            "http",
+            "192.168.49.2",
+            32100,
+            32399,
+            32400,
+            32699
         );
 
         MockMultipartFile dummyFile = new MockMultipartFile(

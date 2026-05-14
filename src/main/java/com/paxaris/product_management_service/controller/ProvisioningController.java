@@ -1,5 +1,6 @@
 package com.paxaris.product_management_service.controller;
 
+import com.paxaris.product_management_service.dto.ProductProvisioningResponse;
 import com.paxaris.product_management_service.service.ProvisioningService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -81,6 +82,61 @@ public class ProvisioningController {
             log.error("❌ Failed to provision repository: {}", e.getMessage(), e);
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Failed to provision repository: " + e.getMessage(), e);
+        }
+    }
+
+    @PostMapping(value = "/product", consumes = "multipart/form-data")
+    @Operation(
+            summary = "Provision product repositories",
+            description = "Allocates NodePorts, provisions backend/frontend repositories, saves public URLs, and returns the generated URLs"
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Product provisioned successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid input"),
+            @ApiResponse(responseCode = "500", description = "Product provisioning failed")
+    })
+    public ResponseEntity<ProductProvisioningResponse> provisionProduct(
+            @RequestParam("realmName") String realmName,
+            @RequestParam("productId") String productId,
+            @RequestParam("backendRepoName") String backendRepoName,
+            @RequestParam("frontendRepoName") String frontendRepoName,
+            @RequestParam("backendZip") MultipartFile backendZip,
+            @RequestParam("frontendZip") MultipartFile frontendZip
+    ) {
+        log.info("Received product provisioning request for realm='{}', product='{}'", realmName, productId);
+
+        try {
+            if (backendZip == null || backendZip.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Backend ZIP file is empty or missing");
+            }
+            if (frontendZip == null || frontendZip.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Frontend ZIP file is empty or missing");
+            }
+
+            ProductProvisioningResponse response = provisioningService.provisionProduct(
+                    realmName,
+                    productId,
+                    backendRepoName,
+                    frontendRepoName,
+                    backendZip,
+                    frontendZip
+            );
+
+            log.info("✅ Product '{}' provisioned with frontend URL {}", productId, response.frontendBaseUrl());
+            return ResponseEntity.ok(response);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("❌ Failed to provision product '{}': {}", productId, e.getMessage(), e);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to provision product: " + e.getMessage(),
+                    e
+            );
         }
     }
 
