@@ -1,21 +1,25 @@
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/ProjectManagerService.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/config/CorrelationIdFilter.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/config/MultipartConfig.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/config/SwaggerConfig.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/controller/ProvisioningController.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/controller/RealmProductRoleUrlController.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/dto/RoleRequest.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/dto/UrlEntry.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/entities/HttpMethodType.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/entities/RealmProductRole.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/entities/RealmProductRoleUrl.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/exception/AccessDeniedException.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/exception/ErrorResponse.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/exception/GlobalExceptionHandler.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/exception/RoleNotFoundException.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/repository/RealmProductRoleRepository.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/repository/RealmProductRoleUrlRepository.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/service/ProvisioningService.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/service/ProvisioningServiceHelper.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/service/RealmProductRoleUrlService.java
-/Users/m5/paxarisglobal product/product-management-service/src/main/java/com/paxaris/product_management_service/service/impl/RealmProductRoleUrlServiceImpl.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/ProjectManagerService.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/config/CorrelationIdFilter.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/config/MultipartConfig.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/config/SwaggerConfig.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/controller/ProvisioningController.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/controller/RealmProductRoleUrlController.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/dto/ProductDeploymentStatusResponse.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/dto/ProductProvisioningResponse.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/dto/RoleRequest.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/dto/UrlEntry.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/entities/HttpMethodType.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/entities/ProductUrlMapping.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/entities/RealmProductRole.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/entities/RealmProductRoleUrl.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/exception/AccessDeniedException.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/exception/ErrorResponse.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/exception/GlobalExceptionHandler.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/exception/RoleNotFoundException.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/repository/ProductUrlMappingRepository.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/repository/RealmProductRoleRepository.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/repository/RealmProductRoleUrlRepository.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/service/ProvisioningService.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/service/ProvisioningServiceHelper.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/service/RealmProductRoleUrlService.java
+/Users/m5/paxarisGateway/product-management-service/src/main/java/com/paxaris/product_management_service/service/impl/RealmProductRoleUrlServiceImpl.java

@@ -4,6 +4,7 @@ com/paxaris/product_management_service/config/CorrelationIdFilter.class
 com/paxaris/product_management_service/entities/RealmProductRoleUrl.class
 com/paxaris/product_management_service/exception/GlobalExceptionHandler.class
 com/paxaris/product_management_service/service/ProvisioningServiceHelper$MultipartFileResource.class
+com/paxaris/product_management_service/service/ProvisioningService$DataStackRequirements.class
 com/paxaris/product_management_service/service/impl/RealmProductRoleUrlServiceImpl.class
 com/paxaris/product_management_service/service/RealmProductRoleUrlService.class
 com/paxaris/product_management_service/ProjectManagerService.class
@@ -27,3 +28,4 @@ com/paxaris/product_management_service/config/SwaggerConfig.class
 com/paxaris/product_management_service/service/ProvisioningService$FileBlobRef.class
 com/paxaris/product_management_service/service/ProvisioningService$BuildSpec.class
 com/paxaris/product_management_service/entities/RealmProductRole.class
+com/paxaris/product_management_service/dto/ProductDeploymentStatusResponse.class
