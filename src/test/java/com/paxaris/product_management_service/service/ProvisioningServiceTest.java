@@ -122,6 +122,30 @@ class ProvisioningServiceTest {
     }
 
     @Test
+    void rewriteBackendUpstream_doesNotDoubleReplaceServiceNameSuffix() {
+        String backendService = "yatrify-admin-testyatrify-backend";
+        String nginx = """
+                location /api/ {
+                    proxy_pass http://backend:8081;
+                }
+                """;
+
+        String once = provisioningService.rewriteBackendUpstreamInContent(nginx, backendService);
+        assertEquals(
+                """
+                location /api/ {
+                    proxy_pass http://yatrify-admin-testyatrify-backend:8080;
+                }
+                """,
+                once
+        );
+
+        String twice = provisioningService.rewriteBackendUpstreamInContent(once, backendService);
+        assertEquals(once, twice, "Second pass must be idempotent");
+        assertFalse(twice.contains("yatrify-admin-testyatrify-yatrify-admin"));
+    }
+
+    @Test
     void testValidateConfigWithMissingOrg() {
         ProvisioningService invalidService = new ProvisioningService(
             "test-token",

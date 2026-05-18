@@ -1457,12 +1457,7 @@ public class ProvisioningService {
     private void replaceBackendServiceReference(Path path, String backendServiceName) {
         try {
             String content = Files.readString(path);
-            String updated = content
-                    .replace("http://backend:8081", "http://" + backendServiceName + ":8080")
-                    .replace("backend:8081", backendServiceName + ":8080")
-                    .replace("http://backend:8080", "http://" + backendServiceName + ":8080")
-                    .replace("backend:8080", backendServiceName + ":8080")
-                    .replace("http://backend", "http://" + backendServiceName + ":8080");
+            String updated = rewriteBackendUpstreamInContent(content, backendServiceName);
             if (!content.equals(updated)) {
                 Files.writeString(path, updated);
                 log.info("Updated frontend backend upstream in {} to {}", path, backendServiceName);
@@ -1470,6 +1465,26 @@ public class ProvisioningService {
         } catch (IOException ex) {
             throw new RuntimeException("Failed to update frontend backend upstream in " + path, ex);
         }
+    }
+
+    /**
+     * Rewrites docker-compose hostname {@code backend} to the Kubernetes Service name.
+     * Only replaces the full {@code http://backend:port} form so service names ending in
+     * {@code -backend} are not corrupted (e.g. {@code yatrify-admin-x-backend:8080}).
+     */
+    String rewriteBackendUpstreamInContent(String content, String backendServiceName) {
+        if (content == null || content.isBlank() || backendServiceName == null || backendServiceName.isBlank()) {
+            return content;
+        }
+        if (content.contains(backendServiceName)) {
+            return content;
+        }
+
+        String upstream = "http://" + backendServiceName + ":8080";
+        return content
+                .replaceAll("(?i)http://backend:8081", upstream)
+                .replaceAll("(?i)http://backend:8080", upstream)
+                .replaceAll("(?i)(proxy_pass\\s+)http://backend(\\s*;)", "$1" + upstream + "$2");
     }
 
     private String toK8sName(String raw, int maxLen) {
