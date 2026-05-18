@@ -1,5 +1,6 @@
 package com.paxaris.product_management_service.controller;
 
+import com.paxaris.product_management_service.dto.ProductDeploymentStatusResponse;
 import com.paxaris.product_management_service.dto.ProductProvisioningResponse;
 import com.paxaris.product_management_service.service.ProvisioningService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -82,6 +83,43 @@ public class ProvisioningController {
             log.error("❌ Failed to provision repository: {}", e.getMessage(), e);
                 throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
                     "Failed to provision repository: " + e.getMessage(), e);
+        }
+    }
+
+    @GetMapping("/product/{realmName}/{productId}/status")
+    @Operation(
+            summary = "Product deployment status",
+            description = "Reports URL allocation and live health (frontend/backend) for progress tracking after provisioning"
+    )
+    public ResponseEntity<ProductDeploymentStatusResponse> getProductDeploymentStatus(
+            @PathVariable String realmName,
+            @PathVariable String productId
+    ) {
+        return ResponseEntity.ok(provisioningService.getProductDeploymentStatus(realmName, productId));
+    }
+
+    @PostMapping("/product/urls")
+    @Operation(
+            summary = "Allocate product public URLs",
+            description = "Reserves NodePorts and returns frontend/backend base URLs before long-running repository provisioning"
+    )
+    public ResponseEntity<ProductProvisioningResponse> allocateProductUrls(
+            @RequestParam("realmName") String realmName,
+            @RequestParam("productId") String productId
+    ) {
+        log.info("Allocating product URLs for realm='{}', product='{}'", realmName, productId);
+        try {
+            ProductProvisioningResponse response = provisioningService.allocateProductUrls(realmName, productId);
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("Failed to allocate product URLs for '{}': {}", productId, e.getMessage(), e);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to allocate product URLs: " + e.getMessage(),
+                    e
+            );
         }
     }
 

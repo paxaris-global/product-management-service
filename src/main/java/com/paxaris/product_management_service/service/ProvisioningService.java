@@ -2,6 +2,7 @@ package com.paxaris.product_management_service.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.paxaris.product_management_service.dto.ProductDeploymentStatusResponse;
 import com.paxaris.product_management_service.dto.ProductProvisioningResponse;
 import com.paxaris.product_management_service.entities.ProductUrlMapping;
 import com.paxaris.product_management_service.repository.ProductUrlMappingRepository;
@@ -55,6 +56,19 @@ public class ProvisioningService {
     private final int backendNodePortEnd;
 
     private record BuildSpec(String contextPath, String dockerfilePath) {
+    }
+
+    /** Detected database/cache needs from backend source (docker-compose / application.yml). */
+    private record DataStackRequirements(
+            boolean needsPostgres,
+            boolean needsRedis,
+            String databaseName,
+            String databaseUser,
+            String databasePassword
+    ) {
+        static DataStackRequirements none() {
+            return new DataStackRequirements(false, false, "app", "app_user", "app_pass");
+        }
     }
 
     public ProvisioningService(
@@ -138,6 +152,158 @@ public class ProvisioningService {
             mapping.getBackendNodePort(),
             mapping.getFrontendBaseUrl(),
             mapping.getBackendBaseUrl()
+        );
+    }
+
+    /**
+     * Reserves NodePorts and public URLs for a product before long-running provisioning.
+     * Idempotent: returns existing mapping when the product was already allocated.
+     */
+    public ProductDeploymentStatusResponse getProductDeploymentStatus(String realmName, String productId) {
+        Optional<ProductUrlMapping> mappingOpt =
+                productUrlMappingRepository.findByRealmNameAndProductId(realmName, productId);
+        if (mappingOpt.isEmpty()) {
+            return new ProductDeploymentStatusResponse(
+                    "not_found",
+                    realmName,
+                    productId,
+                    null,
+                    null,
+                    false,
+                    false,
+                    false,
+                    0,
+                    "NOT_ALLOCATED",
+                    "Product URLs are not allocated yet"
+            );
+        }
+
+        ProductUrlMapping mapping = mappingOpt.get();
+        String frontendUrl = mapping.getFrontendBaseUrl();
+        String backendUrl = mapping.getBackendBaseUrl();
+        boolean frontendReady = pingUrl(frontendUrl);
+        boolean backendReady = pingBackendHealth(backendUrl);
+        boolean ready = frontendReady && backendReady;
+
+        int progressPercent = 45;
+        if (backendReady) {
+            progressPercent += 27;
+        }
+        if (frontendReady) {
+            progressPercent += 28;
+        }
+        if (!ready) {
+            progressPercent = Math.min(progressPercent, 95);
+        }
+
+        String phase = ready ? "RUNNING" : (backendReady || frontendReady ? "STARTING" : "SYNCING");
+        String message = ready
+                ? "Product is live on ArgoCD/Kubernetes"
+                : buildDeploymentStatusMessage(frontendReady, backendReady);
+
+        return new ProductDeploymentStatusResponse(
+                ready ? "ready" : "pending",
+                realmName,
+                productId,
+                frontendUrl,
+                backendUrl,
+                frontendReady,
+                backendReady,
+                ready,
+                ready ? 100 : progressPercent,
+                phase,
+                message
+        );
+    }
+
+    private String buildDeploymentStatusMessage(boolean frontendReady, boolean backendReady) {
+        if (!frontendReady && !backendReady) {
+            return "Waiting for ArgoCD to sync backend, frontend, database, and pods";
+        }
+        if (backendReady && !frontendReady) {
+            return "Backend is up; waiting for frontend pod";
+        }
+        if (!backendReady && frontendReady) {
+            return "Frontend is up; waiting for backend and database";
+        }
+        return "Finalizing health checks";
+    }
+
+    private boolean pingUrl(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return false;
+        }
+        String normalized = baseUrl.trim().replaceAll("/+$", "");
+        for (String path : List.of("", "/")) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(normalized + path))
+                        .timeout(java.time.Duration.ofSeconds(4))
+                        .GET()
+                        .build();
+                HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+                int code = response.statusCode();
+                if (code >= 200 && code < 500) {
+                    return true;
+                }
+            } catch (Exception ex) {
+                log.debug("Health check failed for {}: {}", normalized + path, ex.getMessage());
+            }
+        }
+        return false;
+    }
+
+    private boolean pingBackendHealth(String baseUrl) {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return false;
+        }
+        String normalized = baseUrl.trim().replaceAll("/+$", "");
+        List<String> candidates = List.of(
+                normalized + "/api/v1/actuator/health",
+                normalized + "/actuator/health",
+                normalized + "/api/v1/health",
+                normalized + "/health",
+                normalized + "/"
+        );
+        for (String url : candidates) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(java.time.Duration.ofSeconds(4))
+                        .GET()
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                int code = response.statusCode();
+                if (code >= 200 && code < 300) {
+                    String body = response.body() == null ? "" : response.body().toLowerCase(Locale.ROOT);
+                    if (url.contains("actuator") || url.contains("health")) {
+                        if (body.contains("\"status\":\"up\"") || body.contains("status\":\"up")
+                                || body.contains("ok")) {
+                            return true;
+                        }
+                    } else {
+                        return true;
+                    }
+                }
+            } catch (Exception ex) {
+                log.debug("Backend health check failed for {}: {}", url, ex.getMessage());
+            }
+        }
+        return false;
+    }
+
+    public ProductProvisioningResponse allocateProductUrls(String realmName, String productId) {
+        ProductUrlMapping mapping = allocateAndSaveProductUrls(realmName, productId);
+        return new ProductProvisioningResponse(
+                "success",
+                realmName,
+                productId,
+                null,
+                null,
+                mapping.getFrontendNodePort(),
+                mapping.getBackendNodePort(),
+                mapping.getFrontendBaseUrl(),
+                mapping.getBackendBaseUrl()
         );
     }
 
@@ -238,10 +404,29 @@ public class ProvisioningService {
                         Files.writeString(dockerfilePath, dockerfile);
                 }
 
-                Path k8ManifestPath = tempDir.resolve("k8").resolve("deployment.yaml");
+                Path k8Dir = tempDir.resolve("k8");
+                Path k8ManifestPath = k8Dir.resolve("deployment.yaml");
                 if (Files.notExists(k8ManifestPath) || nodePort != null) {
-                        Files.createDirectories(k8ManifestPath.getParent());
-                        Files.writeString(k8ManifestPath, generateRepositoryK8Manifest(repoName, containerPort, nodePort));
+                        Files.createDirectories(k8Dir);
+                        if (isBackend) {
+                                DataStackRequirements stack = detectDataStack(tempDir);
+                                String k8Name = toK8sName(repoName, 63);
+                                Files.writeString(
+                                        k8ManifestPath,
+                                        generateBackendK8Manifest(repoName, nodePort, stack, k8Name)
+                                );
+                                if (stack.needsPostgres()) {
+                                        Files.writeString(
+                                                k8Dir.resolve("postgres.yaml"),
+                                                generatePostgresManifest(k8Name, stack)
+                                        );
+                                }
+                                if (stack.needsRedis()) {
+                                        Files.writeString(k8Dir.resolve("redis.yaml"), generateRedisManifest(k8Name));
+                                }
+                        } else {
+                                Files.writeString(k8ManifestPath, generateRepositoryK8Manifest(repoName, containerPort, nodePort));
+                        }
                 }
 
                 Path workflowsDir = tempDir.resolve(".github").resolve("workflows");
@@ -852,8 +1037,16 @@ public class ProvisioningService {
     // --------------------------------------------------
     private void generateAndDeployManifests(String repoName, Path tempDir, Integer nodePort) throws Exception {
         if (repoName.endsWith("-backend")) {
-            String manifest = generateBackendManifest(repoName, nodePort);
+            DataStackRequirements stack = detectDataStack(tempDir);
+            String k8Name = toK8sName(repoName, 63);
+            String manifest = generateBackendK8Manifest(repoName, nodePort, stack, k8Name);
             updatePaxoRepo(repoName + "-deployment.yaml", manifest);
+            if (stack.needsPostgres()) {
+                updatePaxoRepo(repoName + "-postgres.yaml", generatePostgresManifest(k8Name, stack));
+            }
+            if (stack.needsRedis()) {
+                updatePaxoRepo(repoName + "-redis.yaml", generateRedisManifest(k8Name));
+            }
                         updatePaxoRepo("generated-apps/" + repoName + "-app.yaml", generateArgoApplicationManifest(repoName));
         } else if (repoName.endsWith("-frontend")) {
             String manifest = generateFrontendManifest(repoName, nodePort);
@@ -888,12 +1081,51 @@ public class ProvisioningService {
                                 """.formatted(appName, githubOrg, repoName);
         }
 
-    private String generateBackendManifest(String repoName, Integer nodePort) {
-        String k8Name = toK8sName(repoName, 63);
+    private String generateBackendK8Manifest(
+            String repoName,
+            Integer nodePort,
+            DataStackRequirements stack,
+            String k8Name
+    ) {
         String imageRepo = generateImageRepository(repoName);
-         String imageUpdaterAlias = "app";
+        String imageUpdaterAlias = "app";
         String nodePortLine = nodePort != null ? "      nodePort: " + nodePort + "\n" : "";
         String serviceType = nodePort != null ? "NodePort" : "ClusterIP";
+        String postgresHost = k8Name + "-postgres";
+        String redisHost = k8Name + "-redis";
+
+        StringBuilder envBlock = new StringBuilder();
+        envBlock.append("            - name: SERVER_PORT\n");
+        envBlock.append("              value: \"8080\"\n");
+        if (stack.needsPostgres()) {
+            envBlock.append("            - name: DB_URL\n");
+            envBlock.append("              value: jdbc:postgresql://").append(postgresHost).append(":5432/")
+                    .append(stack.databaseName()).append("\n");
+            envBlock.append("            - name: DB_USERNAME\n");
+            envBlock.append("              value: ").append(stack.databaseUser()).append("\n");
+            envBlock.append("            - name: DB_PASSWORD\n");
+            envBlock.append("              value: ").append(stack.databasePassword()).append("\n");
+        }
+        if (stack.needsRedis()) {
+            envBlock.append("            - name: REDIS_HOST\n");
+            envBlock.append("              value: ").append(redisHost).append("\n");
+            envBlock.append("            - name: REDIS_PORT\n");
+            envBlock.append("              value: \"6379\"\n");
+        }
+
+        String initContainers = "";
+        if (stack.needsPostgres()) {
+            initContainers = """
+                      initContainers:
+                        - name: wait-for-postgres
+                          image: postgres:16-alpine
+                          command:
+                            - sh
+                            - -c
+                            - until pg_isready -h %s -p 5432 -U %s; do echo waiting for postgres; sleep 2; done
+                    """.formatted(postgresHost, stack.databaseUser());
+        }
+
         return "apiVersion: apps/v1\n" +
                "kind: Deployment\n" +
                "metadata:\n" +
@@ -902,7 +1134,7 @@ public class ProvisioningService {
              "    argocd-image-updater.argoproj.io/image-list: \"" + imageUpdaterAlias + "=" + imageRepo + "\"\n" +
              "    argocd-image-updater.argoproj.io/" + imageUpdaterAlias + ".update-strategy: latest\n" +
                "spec:\n" +
-               "  replicas: 2\n" +
+               "  replicas: 1\n" +
                "  selector:\n" +
                "    matchLabels:\n" +
                "      app: " + k8Name + "\n" +
@@ -911,6 +1143,7 @@ public class ProvisioningService {
                "      labels:\n" +
                "        app: " + k8Name + "\n" +
                "    spec:\n" +
+               initContainers +
                "      imagePullSecrets:\n" +
                "        - name: dockerhub-secret\n" +
                "      containers:\n" +
@@ -920,8 +1153,7 @@ public class ProvisioningService {
                "          ports:\n" +
                "            - containerPort: 8080\n" +
                "          env:\n" +
-               "            - name: SPRING_PROFILES_ACTIVE\n" +
-               "              value: local\n" +
+               envBlock +
                "---\n" +
                "apiVersion: v1\n" +
                "kind: Service\n" +
@@ -935,6 +1167,174 @@ public class ProvisioningService {
                "      targetPort: 8080\n" +
                nodePortLine +
                "  type: " + serviceType + "\n";
+    }
+
+    private String generatePostgresManifest(String k8Name, DataStackRequirements stack) {
+        String postgresName = k8Name + "-postgres";
+        return """
+                apiVersion: v1
+                kind: PersistentVolumeClaim
+                metadata:
+                  name: %s-data
+                spec:
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 2Gi
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: %s
+                spec:
+                  replicas: 1
+                  selector:
+                    matchLabels:
+                      app: %s
+                  template:
+                    metadata:
+                      labels:
+                        app: %s
+                    spec:
+                      containers:
+                        - name: postgres
+                          image: postgres:16-alpine
+                          ports:
+                            - containerPort: 5432
+                          env:
+                            - name: POSTGRES_DB
+                              value: %s
+                            - name: POSTGRES_USER
+                              value: %s
+                            - name: POSTGRES_PASSWORD
+                              value: %s
+                          volumeMounts:
+                            - name: data
+                              mountPath: /var/lib/postgresql/data
+                      volumes:
+                        - name: data
+                          persistentVolumeClaim:
+                            claimName: %s-data
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: %s
+                spec:
+                  selector:
+                    app: %s
+                  ports:
+                    - port: 5432
+                      targetPort: 5432
+                """.formatted(
+                postgresName,
+                postgresName,
+                postgresName,
+                postgresName,
+                stack.databaseName(),
+                stack.databaseUser(),
+                stack.databasePassword(),
+                postgresName,
+                postgresName,
+                postgresName
+        );
+    }
+
+    private String generateRedisManifest(String k8Name) {
+        String redisName = k8Name + "-redis";
+        return """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: %s
+                spec:
+                  replicas: 1
+                  selector:
+                    matchLabels:
+                      app: %s
+                  template:
+                    metadata:
+                      labels:
+                        app: %s
+                    spec:
+                      containers:
+                        - name: redis
+                          image: redis:7-alpine
+                          ports:
+                            - containerPort: 6379
+                          command: ["redis-server"]
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: %s
+                spec:
+                  selector:
+                    app: %s
+                  ports:
+                    - port: 6379
+                      targetPort: 6379
+                """.formatted(redisName, redisName, redisName, redisName, redisName);
+    }
+
+    private DataStackRequirements detectDataStack(Path root) {
+        boolean needsPostgres = false;
+        boolean needsRedis = false;
+        String dbName = "app";
+        String dbUser = "app_user";
+        String dbPassword = "app_pass";
+
+        try (var paths = Files.walk(root)) {
+            List<Path> files = paths.filter(Files::isRegularFile).toList();
+            for (Path file : files) {
+                String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (!name.equals("application.yml") && !name.equals("application.yaml")
+                        && !name.equals("docker-compose.yml") && !name.equals("docker-compose.yaml")) {
+                    continue;
+                }
+                String content = Files.readString(file).toLowerCase(Locale.ROOT);
+                if (content.contains("postgresql") || content.contains("jdbc:postgresql")) {
+                    needsPostgres = true;
+                }
+                if (content.contains("redis") && (content.contains("spring.data.redis") || content.contains("redis:"))) {
+                    needsRedis = true;
+                }
+                if (name.startsWith("docker-compose")) {
+                    dbName = firstMatchGroup(content, "postgres_db:\\s*([a-z0-9_-]+)", dbName);
+                    dbUser = firstMatchGroup(content, "postgres_user:\\s*([a-z0-9_-]+)", dbUser);
+                    dbPassword = firstMatchGroup(content, "postgres_password:\\s*([a-z0-9_-]+)", dbPassword);
+                    if (content.contains("image: postgres") || content.contains("postgres:")) {
+                        needsPostgres = true;
+                    }
+                    if (content.contains("image: redis") || content.contains("\n  redis:")) {
+                        needsRedis = true;
+                    }
+                }
+                if (name.startsWith("application")) {
+                    dbName = firstMatchGroup(content, "jdbc:postgresql://[^/]+/([a-z0-9_-]+)", dbName);
+                    dbUser = firstMatchGroup(content, "db_username:\\s*\\$?\\{?db_username:([a-z0-9_-]+)", dbUser);
+                    dbUser = firstMatchGroup(content, "username:\\s*\\$?\\{?db_username:([a-z0-9_-]+)", dbUser);
+                    dbPassword = firstMatchGroup(content, "db_password:\\s*\\$?\\{?db_password:([a-z0-9_-]+)", dbPassword);
+                    dbPassword = firstMatchGroup(content, "password:\\s*\\$?\\{?db_password:([a-z0-9_-]+)", dbPassword);
+                }
+            }
+        } catch (IOException ex) {
+            log.warn("Could not scan backend for data stack requirements: {}", ex.getMessage());
+        }
+
+        if (!needsPostgres && !needsRedis) {
+            return DataStackRequirements.none();
+        }
+        return new DataStackRequirements(needsPostgres, needsRedis, dbName, dbUser, dbPassword);
+    }
+
+    private String firstMatchGroup(String content, String regex, String fallback) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(regex).matcher(content);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return fallback;
     }
 
     private String generateFrontendManifest(String repoName, Integer nodePort) {
@@ -1058,8 +1458,11 @@ public class ProvisioningService {
         try {
             String content = Files.readString(path);
             String updated = content
+                    .replace("http://backend:8081", "http://" + backendServiceName + ":8080")
+                    .replace("backend:8081", backendServiceName + ":8080")
                     .replace("http://backend:8080", "http://" + backendServiceName + ":8080")
-                    .replace("backend:8080", backendServiceName + ":8080");
+                    .replace("backend:8080", backendServiceName + ":8080")
+                    .replace("http://backend", "http://" + backendServiceName + ":8080");
             if (!content.equals(updated)) {
                 Files.writeString(path, updated);
                 log.info("Updated frontend backend upstream in {} to {}", path, backendServiceName);
