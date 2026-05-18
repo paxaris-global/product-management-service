@@ -254,10 +254,28 @@ public class ProvisioningService {
                     generateRepositoryWorkflow(repoName, buildSpec.contextPath(), buildSpec.dockerfilePath())
                 );
 
-                // Remove legacy trigger workflow from uploaded templates (it appends extra suffixes).
-                Path legacyTriggerWorkflow = workflowsDir.resolve("trigger.yml");
-                if (Files.exists(legacyTriggerWorkflow)) {
-                    Files.delete(legacyTriggerWorkflow);
+                // Remove Foundry/legacy workflows that expect repo secrets or duplicate CI.
+                // Provisioning only configures Actions *variables* (DOCKERHUB_*); secret-based triggers fail with
+                // "Password required" from docker/login-action@v3.
+                try (var workflowFiles = Files.list(workflowsDir)) {
+                    workflowFiles
+                            .filter(Files::isRegularFile)
+                            .filter(path -> {
+                                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                                return name.endsWith(".yml") || name.endsWith(".yaml");
+                            })
+                            .filter(path -> {
+                                String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                                return !name.equals("gitops-deploy.yml");
+                            })
+                            .forEach(path -> {
+                                try {
+                                    Files.delete(path);
+                                    log.info("Removed conflicting workflow '{}' from {}", path.getFileName(), repoName);
+                                } catch (IOException ex) {
+                                    throw new RuntimeException("Failed to remove workflow " + path, ex);
+                                }
+                            });
                 }
         }
 
@@ -524,6 +542,11 @@ public class ProvisioningService {
     public void createRepo(String repoName) throws IOException {
         validateConfig();
 
+        if (repositoryExists(repoName)) {
+            log.info("Repository '{}' already exists in org '{}'; reusing for provisioning", repoName, githubOrg);
+            return;
+        }
+
         String apiUrl = githubApiBaseUrl + "/orgs/" + githubOrg + "/repos";
 
         // auto_init: true is required to create the 'main' branch so we can update it
@@ -536,7 +559,57 @@ public class ProvisioningService {
                 }
                 """.formatted(repoName);
 
-        sendRequest("POST", apiUrl, body);
+        try {
+            sendRequest("POST", apiUrl, body);
+        } catch (RuntimeException e) {
+            if (isRepositoryAlreadyExistsError(e)) {
+                log.info("Repository '{}' already exists (create race); continuing", repoName);
+                return;
+            }
+            throw e;
+        }
+    }
+
+    private boolean repositoryExists(String repoName) throws IOException {
+        String url = githubApiBaseUrl + "/repos/" + githubOrg + "/" + repoName;
+        int status = sendRequestStatus("GET", url, null);
+        if (status == 200) {
+            return true;
+        }
+        if (status == 404) {
+            return false;
+        }
+        throw new RuntimeException("GitHub API error (" + status + ") checking repository at " + url);
+    }
+
+    private boolean isRepositoryAlreadyExistsError(RuntimeException error) {
+        String message = error.getMessage();
+        return message != null
+                && message.contains("(422)")
+                && message.contains("name already exists");
+    }
+
+    private int sendRequestStatus(String method, String urlStr, String jsonBody) throws IOException {
+        HttpRequest.BodyPublisher bodyPublisher = jsonBody == null
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(urlStr))
+                .header("Authorization", "Bearer " + githubToken)
+                .header("Accept", "application/vnd.github+json")
+                .header("Content-Type", "application/json")
+                .method(method, bodyPublisher)
+                .build();
+
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("HTTP request interrupted: " + method + " " + urlStr, e);
+        }
+        return response.statusCode();
     }
 
     // --------------------------------------------------
