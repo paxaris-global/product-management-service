@@ -34,6 +34,7 @@ public class ProductShowcaseService {
     private final ProductShowcaseCaptureService captureService;
     private final DeployedProductCatalogSyncService catalogSync;
     private final ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
+    private final ProductPublicUrlService publicUrlService;
 
     public ProductShowcaseService(
             ProductShowcaseRepository showcaseRepository,
@@ -41,7 +42,8 @@ public class ProductShowcaseService {
             ProvisioningService provisioningService,
             ProductShowcaseCaptureService captureService,
             DeployedProductCatalogSyncService catalogSync,
-            @Lazy ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator
+            @Lazy ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator,
+            ProductPublicUrlService publicUrlService
     ) {
         this.showcaseRepository = showcaseRepository;
         this.urlMappingRepository = urlMappingRepository;
@@ -49,6 +51,7 @@ public class ProductShowcaseService {
         this.captureService = captureService;
         this.catalogSync = catalogSync;
         this.showcaseCaptureOrchestrator = showcaseCaptureOrchestrator;
+        this.publicUrlService = publicUrlService;
     }
 
     /**
@@ -141,11 +144,18 @@ public class ProductShowcaseService {
         waitUntilReady(realmName, productId);
 
         String productName = resolveProductName(productId, request);
-        String frontendUrl = mapping.getFrontendBaseUrl();
+        String captureUrl = publicUrlService.toInClusterCaptureUrl(realmName, productId);
+        String browserUrl = publicUrlService.toBrowserUrl(mapping);
 
-        log.info("Capturing product showcase for realm='{}', product='{}', url={}", realmName, productId, frontendUrl);
-        ProductShowcaseCaptureService.CaptureResult captured =
-                captureService.capture(frontendUrl, productName, realmName);
+        log.info("Capturing product showcase for realm='{}', product='{}', captureUrl={}", realmName, productId, captureUrl);
+        ProductShowcaseCaptureService.CaptureResult captured;
+        try {
+            captured = captureService.capture(captureUrl, productName, realmName);
+        } catch (Exception ex) {
+            log.warn("In-cluster capture failed for {} / {}, retrying via NodePort: {}",
+                    realmName, productId, ex.getMessage());
+            captured = captureService.capture(mapping.getFrontendBaseUrl(), productName, realmName);
+        }
 
         String displayName = captured.productName();
         if (displayName == null || displayName.isBlank()) {
@@ -158,7 +168,7 @@ public class ProductShowcaseService {
         showcase.setRealmName(realmName);
         showcase.setProductId(productId);
         showcase.setProductName(displayName);
-        showcase.setFrontendUrl(frontendUrl);
+        showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
         showcase.setDescription(captured.description());
         showcase.setPreviewImage(captured.previewImage());
         showcase.setCapturedAt(Instant.now());
@@ -187,12 +197,17 @@ public class ProductShowcaseService {
         Instant capturedAt = captured != null ? captured.getCapturedAt() : null;
         Long id = captured != null ? captured.getId() : null;
 
+        String browserUrl = publicUrlService.toBrowserUrl(mapping);
+        if (browserUrl == null || browserUrl.isBlank()) {
+            browserUrl = publicUrlService.rewriteForBrowser(mapping.getFrontendBaseUrl());
+        }
+
         return new ProductShowcaseResponse(
                 id,
                 mapping.getRealmName(),
                 mapping.getProductId(),
                 productName,
-                mapping.getFrontendBaseUrl(),
+                browserUrl,
                 description,
                 preview,
                 capturedAt
@@ -248,12 +263,18 @@ public class ProductShowcaseService {
     }
 
     private ProductShowcaseResponse toResponse(ProductShowcase showcase, String productName) {
+        String browserUrl = urlMappingRepository
+                .findByRealmNameAndProductId(showcase.getRealmName(), showcase.getProductId())
+                .map(publicUrlService::toBrowserUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .orElseGet(() -> publicUrlService.rewriteForBrowser(showcase.getFrontendUrl()));
+
         return new ProductShowcaseResponse(
                 showcase.getId(),
                 showcase.getRealmName(),
                 showcase.getProductId(),
                 productName,
-                showcase.getFrontendUrl(),
+                browserUrl,
                 showcase.getDescription(),
                 showcase.getPreviewImage(),
                 showcase.getCapturedAt()

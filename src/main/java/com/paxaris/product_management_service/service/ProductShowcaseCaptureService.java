@@ -51,6 +51,9 @@ public class ProductShowcaseCaptureService {
     private static final List<String> DEFAULT_HOME_PATHS = List.of("", "/", "/home", "/index");
 
     private static final List<String> DEFAULT_ABOUT_SELECTORS = List.of(
+            ".hero__subtitle",
+            ".hero-subtitle",
+            "[class*='hero'] p",
             "#about",
             "#about-us",
             "[id*='about']",
@@ -58,7 +61,6 @@ public class ProductShowcaseCaptureService {
             "[class*='about-section']",
             "section.about",
             ".about",
-            ".hero__subtitle",
             ".hero p",
             ".cta-section p",
             "main p"
