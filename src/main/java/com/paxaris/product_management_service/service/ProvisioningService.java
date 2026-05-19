@@ -9,6 +9,7 @@ import com.paxaris.product_management_service.repository.ProductUrlMappingReposi
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,6 +49,7 @@ public class ProvisioningService {
     private final String dockerHubUsername;
     private final String dockerHubToken;
     private final ProductUrlMappingRepository productUrlMappingRepository;
+    private final ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
     private final String externalUrlScheme;
     private final String externalHost;
     private final int frontendNodePortStart;
@@ -81,6 +83,7 @@ public class ProvisioningService {
             @Value("${docker.hub.username:}") String dockerHubUsername,
             @Value("${docker.hub.token:}") String dockerHubToken,
             ProductUrlMappingRepository productUrlMappingRepository,
+            @Lazy ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator,
             @Value("${provisioning.external-url-scheme:http}") String externalUrlScheme,
             @Value("${provisioning.external-host:192.168.49.2}") String externalHost,
             @Value("${provisioning.frontend-node-port-start:32100}") int frontendNodePortStart,
@@ -98,6 +101,7 @@ public class ProvisioningService {
         this.dockerHubUsername = dockerHubUsername;
         this.dockerHubToken = dockerHubToken;
         this.productUrlMappingRepository = productUrlMappingRepository;
+        this.showcaseCaptureOrchestrator = showcaseCaptureOrchestrator;
         this.externalUrlScheme = externalUrlScheme;
         this.externalHost = externalHost;
         this.frontendNodePortStart = frontendNodePortStart;
@@ -200,6 +204,10 @@ public class ProvisioningService {
         String message = ready
                 ? "Product is live on ArgoCD/Kubernetes"
                 : buildDeploymentStatusMessage(frontendReady, backendReady);
+
+        if (ready) {
+            showcaseCaptureOrchestrator.captureWhenReadyIfAbsent(realmName, productId);
+        }
 
         return new ProductDeploymentStatusResponse(
                 ready ? "ready" : "pending",

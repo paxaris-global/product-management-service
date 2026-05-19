@@ -18,6 +18,9 @@ class ProvisioningServiceTest {
     @Mock
     private ProductUrlMappingRepository productUrlMappingRepository;
 
+    @Mock
+    private ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
+
     @BeforeEach
     void setUp() {
         // Initialize with test configuration
@@ -31,6 +34,7 @@ class ProvisioningServiceTest {
             "",
             "",
             productUrlMappingRepository,
+            showcaseCaptureOrchestrator,
             "http",
             "192.168.49.2",
             32100,
@@ -101,6 +105,7 @@ class ProvisioningServiceTest {
             "",
             "",
             productUrlMappingRepository,
+            showcaseCaptureOrchestrator,
             "http",
             "192.168.49.2",
             32100,
@@ -157,6 +162,7 @@ class ProvisioningServiceTest {
             "",
             "",
             productUrlMappingRepository,
+            showcaseCaptureOrchestrator,
             "http",
             "192.168.49.2",
             32100,

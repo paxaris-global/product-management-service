@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.paxaris.product_management_service.service.ProvisioningServiceTest
 -------------------------------------------------------------------------------
-Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.642 s -- in com.paxaris.product_management_service.service.ProvisioningServiceTest
+Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.292 s -- in com.paxaris.product_management_service.service.ProvisioningServiceTest

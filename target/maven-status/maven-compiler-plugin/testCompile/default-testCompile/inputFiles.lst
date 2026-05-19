@@ -1,4 +1,5 @@
 /Users/m5/paxarisGateway/product-management-service/src/test/java/com/paxaris/product_management_service/ProjectManagerServiceApplicationTests.java
 /Users/m5/paxarisGateway/product-management-service/src/test/java/com/paxaris/product_management_service/config/CorrelationIdFilterTest.java
 /Users/m5/paxarisGateway/product-management-service/src/test/java/com/paxaris/product_management_service/controller/RealmProductRoleUrlControllerTest.java
+/Users/m5/paxarisGateway/product-management-service/src/test/java/com/paxaris/product_management_service/service/ProductShowcaseCaptureServiceTest.java
 /Users/m5/paxarisGateway/product-management-service/src/test/java/com/paxaris/product_management_service/service/ProvisioningServiceTest.java
