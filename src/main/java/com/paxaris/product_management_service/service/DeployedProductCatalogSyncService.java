@@ -79,13 +79,19 @@ public class DeployedProductCatalogSyncService {
     }
 
     public boolean isLiveCatalogProduct(String realmName, String productId) {
+        return isLiveCatalogProduct(realmName, productId, liveProductFrontendDeploymentNames());
+    }
+
+    public boolean isLiveCatalogProduct(String realmName, String productId, Set<String> liveDeployments) {
         if (!isCatalogProduct(realmName, productId)) {
+            return false;
+        }
+        if (liveDeployments == null || liveDeployments.isEmpty()) {
             return false;
         }
         String deploymentName = ProductFrontendCatalogRules.toFrontendDeploymentName(
                 realmName.trim(), productId.trim());
-        Set<String> live = liveProductFrontendDeploymentNames();
-        return !live.isEmpty() && live.contains(deploymentName);
+        return liveDeployments.contains(deploymentName);
     }
 
     Optional<ProductFrontendCatalogRules.RealmProductRef> parseFrontendServiceName(String serviceName) {

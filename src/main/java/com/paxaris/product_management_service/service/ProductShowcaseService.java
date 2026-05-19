@@ -6,8 +6,8 @@ import com.paxaris.product_management_service.entities.ProductShowcase;
 import com.paxaris.product_management_service.entities.ProductUrlMapping;
 import com.paxaris.product_management_service.repository.ProductShowcaseRepository;
 import com.paxaris.product_management_service.repository.ProductUrlMappingRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,10 +19,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ProductShowcaseService {
 
     private static final int READY_WAIT_ATTEMPTS = 30;
@@ -33,6 +33,23 @@ public class ProductShowcaseService {
     private final ProvisioningService provisioningService;
     private final ProductShowcaseCaptureService captureService;
     private final DeployedProductCatalogSyncService catalogSync;
+    private final ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
+
+    public ProductShowcaseService(
+            ProductShowcaseRepository showcaseRepository,
+            ProductUrlMappingRepository urlMappingRepository,
+            ProvisioningService provisioningService,
+            ProductShowcaseCaptureService captureService,
+            DeployedProductCatalogSyncService catalogSync,
+            @Lazy ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator
+    ) {
+        this.showcaseRepository = showcaseRepository;
+        this.urlMappingRepository = urlMappingRepository;
+        this.provisioningService = provisioningService;
+        this.captureService = captureService;
+        this.catalogSync = catalogSync;
+        this.showcaseCaptureOrchestrator = showcaseCaptureOrchestrator;
+    }
 
     /**
      * Lists every provisioned product (URL mapping), merged with captured showcase data when present.
@@ -41,6 +58,7 @@ public class ProductShowcaseService {
     @Transactional
     public List<ProductShowcaseResponse> listShowcases(String realmName) {
         catalogSync.syncDeployedProductsFromKubernetes();
+        Set<String> liveFrontends = catalogSync.liveProductFrontendDeploymentNames();
 
         List<ProductUrlMapping> mappings = urlMappingRepository.findAllByOrderByRealmNameAscProductIdAsc();
         String realmFilter = realmName == null || realmName.isBlank() ? null : realmName.trim();
@@ -58,7 +76,7 @@ public class ProductShowcaseService {
             if (realmFilter != null && !realmFilter.equals(mapping.getRealmName())) {
                 continue;
             }
-            if (!catalogSync.isLiveCatalogProduct(mapping.getRealmName(), mapping.getProductId())) {
+            if (!catalogSync.isLiveCatalogProduct(mapping.getRealmName(), mapping.getProductId(), liveFrontends)) {
                 continue;
             }
             String key = catalogKey(mapping.getRealmName(), mapping.getProductId());
@@ -67,12 +85,8 @@ public class ProductShowcaseService {
             showcaseByKey.remove(key);
 
             if (captured == null || isPlaceholderOnly(captured)) {
-                try {
-                    provisioningService.getProductDeploymentStatus(mapping.getRealmName(), mapping.getProductId());
-                } catch (Exception ex) {
-                    log.debug("Catalog status check for {} / {}: {}", mapping.getRealmName(), mapping.getProductId(),
-                            ex.getMessage());
-                }
+                showcaseCaptureOrchestrator.captureWhenReadyIfAbsent(
+                        mapping.getRealmName(), mapping.getProductId());
             }
         }
 
@@ -81,7 +95,7 @@ public class ProductShowcaseService {
             if (realmFilter != null && !realmFilter.equals(orphan.getRealmName())) {
                 continue;
             }
-            if (!catalogSync.isLiveCatalogProduct(orphan.getRealmName(), orphan.getProductId())) {
+            if (!catalogSync.isLiveCatalogProduct(orphan.getRealmName(), orphan.getProductId(), liveFrontends)) {
                 continue;
             }
             catalog.add(toResponse(orphan, orphan.getProductName()));
