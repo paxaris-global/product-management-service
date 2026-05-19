@@ -267,7 +267,9 @@ public class ProductShowcaseService {
                 .findByRealmNameAndProductId(showcase.getRealmName(), showcase.getProductId())
                 .map(publicUrlService::toBrowserUrl)
                 .filter(url -> url != null && !url.isBlank())
-                .orElseGet(() -> publicUrlService.rewriteForBrowser(showcase.getFrontendUrl()));
+                .orElseGet(() -> publicUrlService.useProxyBrowserPaths()
+                        ? publicUrlService.toProxyBrowserPath(showcase.getRealmName(), showcase.getProductId())
+                        : publicUrlService.rewriteForBrowser(showcase.getFrontendUrl()));
 
         return new ProductShowcaseResponse(
                 showcase.getId(),

@@ -25,14 +25,31 @@ public class ProductPublicUrlService {
     @Value("${catalog.sync.kubernetes-namespace:default}")
     private String kubernetesNamespace;
 
+    /** proxy = /product-ui/{realm}/{product}/ via Paxo nginx; nodeport = host:nodePort */
+    @Value("${provisioning.browser-url-mode:proxy}")
+    private String browserUrlMode;
+
     public String toBrowserUrl(ProductUrlMapping mapping) {
         if (mapping == null) {
             return null;
+        }
+        if (useProxyBrowserPaths()) {
+            return toProxyBrowserPath(mapping.getRealmName(), mapping.getProductId());
         }
         if (mapping.getFrontendNodePort() != null && mapping.getFrontendNodePort() > 0) {
             return buildUrl(browserHost, mapping.getFrontendNodePort());
         }
         return rewriteForBrowser(mapping.getFrontendBaseUrl());
+    }
+
+    public String toProxyBrowserPath(String realmName, String productId) {
+        String realm = realmName == null ? "" : realmName.trim();
+        String product = productId == null ? "" : productId.trim();
+        return "/product-ui/" + realm + "/" + product + "/";
+    }
+
+    public boolean useProxyBrowserPaths() {
+        return browserUrlMode != null && browserUrlMode.trim().equalsIgnoreCase("proxy");
     }
 
     public String toInClusterCaptureUrl(String realmName, String productId) {
