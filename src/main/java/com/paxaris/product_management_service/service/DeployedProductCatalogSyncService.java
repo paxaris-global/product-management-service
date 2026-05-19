@@ -39,9 +39,7 @@ public class DeployedProductCatalogSyncService {
 
     private final ProductUrlMappingRepository urlMappingRepository;
     private final ObjectMapper objectMapper;
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(5))
-            .build();
+    private final HttpClient httpClient = KubernetesInClusterHttpClient.create();
 
     @Value("${catalog.sync.kubernetes-enabled:true}")
     private boolean kubernetesEnabled;
@@ -87,11 +85,7 @@ public class DeployedProductCatalogSyncService {
         String deploymentName = ProductFrontendCatalogRules.toFrontendDeploymentName(
                 realmName.trim(), productId.trim());
         Set<String> live = liveProductFrontendDeploymentNames();
-        if (live.isEmpty()) {
-            // Local/dev without K8 API: fall back to naming rules only.
-            return true;
-        }
-        return live.contains(deploymentName);
+        return !live.isEmpty() && live.contains(deploymentName);
     }
 
     Optional<ProductFrontendCatalogRules.RealmProductRef> parseFrontendServiceName(String serviceName) {
