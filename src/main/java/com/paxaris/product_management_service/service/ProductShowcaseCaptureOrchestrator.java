@@ -29,7 +29,8 @@ public class ProductShowcaseCaptureOrchestrator {
             return;
         }
         try {
-            if (showcaseRepository.findByRealmNameAndProductId(realmName, productId).isPresent()) {
+            var existing = showcaseRepository.findByRealmNameAndProductId(realmName, productId);
+            if (existing.isPresent() && !isPlaceholderOnly(existing.get())) {
                 log.debug("Showcase already exists for {} / {}, skipping auto-capture", realmName, productId);
                 return;
             }
@@ -41,5 +42,12 @@ public class ProductShowcaseCaptureOrchestrator {
         } finally {
             inFlight.remove(key);
         }
+    }
+
+    private static boolean isPlaceholderOnly(com.paxaris.product_management_service.entities.ProductShowcase showcase) {
+        String preview = showcase.getPreviewImage();
+        return preview == null
+                || preview.isBlank()
+                || preview.startsWith("data:image/svg+xml");
     }
 }

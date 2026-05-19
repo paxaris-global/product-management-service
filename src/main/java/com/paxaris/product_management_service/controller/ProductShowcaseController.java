@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -24,11 +25,27 @@ public class ProductShowcaseController {
     private final ProductShowcaseService showcaseService;
 
     @GetMapping
-    @Operation(summary = "List product showcases", description = "Returns provisioned product cards for the Paxo home page")
+    @Operation(
+            summary = "List product showcases",
+            description = "Returns all provisioned products (Argo/Kubernetes), with screenshots when captured"
+    )
     public ResponseEntity<List<ProductShowcaseResponse>> listShowcases(
             @RequestParam(value = "realm", required = false) String realm
     ) {
         return ResponseEntity.ok(showcaseService.listShowcases(realm));
+    }
+
+    @PostMapping("/sync")
+    @Operation(
+            summary = "Sync catalog from cluster",
+            description = "Discovers *-frontend services in Kubernetes, registers URL mappings, and triggers showcase capture"
+    )
+    public ResponseEntity<Map<String, Object>> syncCatalogFromCluster() {
+        int registered = showcaseService.syncCatalogFromCluster();
+        return ResponseEntity.ok(Map.of(
+                "registeredOrUpdated", registered,
+                "message", "Catalog sync started; refresh the home page in a few moments"
+        ));
     }
 
     @GetMapping("/{realmName}/{productId}")

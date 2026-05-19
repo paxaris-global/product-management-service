@@ -16,4 +16,6 @@ public interface ProductUrlMappingRepository extends JpaRepository<ProductUrlMap
 
     @Query("select p.backendNodePort from ProductUrlMapping p")
     List<Integer> findBackendNodePorts();
+
+    List<ProductUrlMapping> findAllByOrderByRealmNameAscProductIdAsc();
 }
