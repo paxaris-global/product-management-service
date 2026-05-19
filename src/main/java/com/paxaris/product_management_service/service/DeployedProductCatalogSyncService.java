@@ -18,23 +18,22 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
- * Registers products that are already running on Kubernetes (Argo CD) into {@code product_url_mapping}
- * so the home-page catalog can list and capture them.
+ * Registers provisioned <strong>product UI frontends</strong> from Kubernetes into
+ * {@code product_url_mapping} for the Paxo home catalog (not backends, DBs, or platform UIs).
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DeployedProductCatalogSyncService {
 
-    private static final Pattern ADMIN_SEGMENT = Pattern.compile("-admin-");
-    private static final String FRONTEND_SUFFIX = "-frontend";
     private static final String BACKEND_SUFFIX = "-backend";
+    private static final int FRONTEND_CONTAINER_PORT = 80;
 
     private final ProductUrlMappingRepository urlMappingRepository;
     private final ObjectMapper objectMapper;
@@ -55,7 +54,23 @@ public class DeployedProductCatalogSyncService {
     private String externalHost;
 
     /**
-     * Discovers {@code *-frontend} services in the cluster and ensures URL mappings exist.
+     * Whether this realm/product belongs in the home catalog (provisioned product frontend only).
+     */
+    public boolean isCatalogProduct(String realmName, String productId) {
+        if (realmName == null || realmName.isBlank() || productId == null || productId.isBlank()) {
+            return false;
+        }
+        return ProductFrontendCatalogRules.isProvisionedProductFrontendName(
+                ProductFrontendCatalogRules.toFrontendDeploymentName(realmName.trim(), productId.trim())
+        );
+    }
+
+    Optional<ProductFrontendCatalogRules.RealmProductRef> parseFrontendServiceName(String serviceName) {
+        return ProductFrontendCatalogRules.parseRealmAndProduct(serviceName);
+    }
+
+    /**
+     * Discovers product UI {@code Deployment}s (port 80, {@code *-admin-*-frontend}) and ensures URL mappings exist.
      */
     @Transactional
     public int syncDeployedProductsFromKubernetes() {
@@ -63,7 +78,8 @@ public class DeployedProductCatalogSyncService {
             return 0;
         }
 
-        List<DiscoveredFrontend> discovered = discoverFrontendServices();
+        Map<String, Integer> serviceNodePorts = loadServiceNodePorts();
+        List<DiscoveredFrontend> discovered = discoverProductFrontendDeployments(serviceNodePorts);
         int upserted = 0;
         for (DiscoveredFrontend frontend : discovered) {
             if (upsertMapping(frontend)) {
@@ -71,34 +87,18 @@ public class DeployedProductCatalogSyncService {
             }
         }
         if (upserted > 0) {
-            log.info("Catalog sync: registered or updated {} deployed product(s) from Kubernetes", upserted);
+            log.info("Catalog sync: registered or updated {} product frontend(s) from Kubernetes", upserted);
         }
         return upserted;
     }
 
-    Optional<RealmProductRef> parseFrontendServiceName(String serviceName) {
-        if (serviceName == null || !serviceName.endsWith(FRONTEND_SUFFIX)) {
-            return Optional.empty();
-        }
-        String base = serviceName.substring(0, serviceName.length() - FRONTEND_SUFFIX.length());
-        var matcher = ADMIN_SEGMENT.matcher(base);
-        if (!matcher.find()) {
-            return Optional.empty();
-        }
-        String realm = base.substring(0, matcher.start());
-        String productId = base.substring(matcher.end());
-        if (realm.isBlank() || productId.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.of(new RealmProductRef(realm, productId, serviceName));
-    }
-
     private boolean upsertMapping(DiscoveredFrontend frontend) {
-        Optional<RealmProductRef> refOpt = parseFrontendServiceName(frontend.serviceName());
+        Optional<ProductFrontendCatalogRules.RealmProductRef> refOpt =
+                ProductFrontendCatalogRules.parseRealmAndProduct(frontend.deploymentName());
         if (refOpt.isEmpty()) {
             return false;
         }
-        RealmProductRef ref = refOpt.get();
+        ProductFrontendCatalogRules.RealmProductRef ref = refOpt.get();
         String backendServiceName = ref.serviceBaseName() + BACKEND_SUFFIX;
 
         Optional<ProductUrlMapping> existing =
@@ -131,18 +131,17 @@ public class DeployedProductCatalogSyncService {
         }
 
         int frontendPort = frontend.nodePort() != null && frontend.nodePort() > 0 ? frontend.nodePort() : 0;
-        int backendPort = 0;
 
         ProductUrlMapping mapping = ProductUrlMapping.builder()
                 .realmName(ref.realmName())
                 .productId(ref.productId())
                 .frontendNodePort(frontendPort)
-                .backendNodePort(backendPort)
+                .backendNodePort(0)
                 .frontendBaseUrl(frontendUrl)
                 .backendBaseUrl(backendUrl != null ? backendUrl : clusterServiceUrl(backendServiceName))
                 .build();
         urlMappingRepository.save(mapping);
-        log.info("Catalog sync: registered {} / {} at {}", ref.realmName(), ref.productId(), frontendUrl);
+        log.info("Catalog sync: registered product frontend {} / {} at {}", ref.realmName(), ref.productId(), frontendUrl);
         return true;
     }
 
@@ -154,7 +153,7 @@ public class DeployedProductCatalogSyncService {
         return clusterServiceUrl(backendServiceName);
     }
 
-    private List<DiscoveredFrontend> discoverFrontendServices() {
+    private List<DiscoveredFrontend> discoverProductFrontendDeployments(Map<String, Integer> serviceNodePorts) {
         try {
             String token = readServiceAccountToken();
             if (token == null) {
@@ -162,8 +161,8 @@ public class DeployedProductCatalogSyncService {
                 return List.of();
             }
 
-            String url = "https://kubernetes.default.svc/api/v1/namespaces/"
-                    + kubernetesNamespace + "/services";
+            String url = "https://kubernetes.default.svc/apis/apps/v1/namespaces/"
+                    + kubernetesNamespace + "/deployments";
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(15))
@@ -174,7 +173,7 @@ public class DeployedProductCatalogSyncService {
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("Catalog sync: Kubernetes API returned HTTP {}", response.statusCode());
+                log.warn("Catalog sync: Kubernetes deployments API returned HTTP {}", response.statusCode());
                 return List.of();
             }
 
@@ -187,18 +186,16 @@ public class DeployedProductCatalogSyncService {
             List<DiscoveredFrontend> result = new ArrayList<>();
             for (JsonNode item : items) {
                 String name = item.path("metadata").path("name").asText(null);
-                if (name == null || !name.endsWith(FRONTEND_SUFFIX)) {
+                if (!ProductFrontendCatalogRules.isProvisionedProductFrontendName(name)) {
                     continue;
                 }
-                Integer nodePort = null;
-                JsonNode ports = item.path("spec").path("ports");
-                if (ports.isArray() && !ports.isEmpty()) {
-                    int np = ports.get(0).path("nodePort").asInt(0);
-                    if (np > 0) {
-                        nodePort = np;
-                    }
+                if (!hasFrontendContainerPort(item)) {
+                    log.debug("Catalog sync: skip {} (not a UI frontend deployment)", name);
+                    continue;
                 }
-                String frontendUrl = nodePort != null
+
+                Integer nodePort = serviceNodePorts.get(name);
+                String frontendUrl = nodePort != null && nodePort > 0
                         ? buildExternalUrl(nodePort)
                         : clusterServiceUrl(name);
                 result.add(new DiscoveredFrontend(name, nodePort, frontendUrl));
@@ -208,6 +205,68 @@ public class DeployedProductCatalogSyncService {
             log.warn("Catalog sync: Kubernetes discovery failed: {}", ex.getMessage());
             return List.of();
         }
+    }
+
+    private boolean hasFrontendContainerPort(JsonNode deployment) {
+        JsonNode containers = deployment.path("spec").path("template").path("spec").path("containers");
+        if (!containers.isArray() || containers.isEmpty()) {
+            return false;
+        }
+        for (JsonNode container : containers) {
+            JsonNode ports = container.path("ports");
+            if (!ports.isArray()) {
+                continue;
+            }
+            for (JsonNode port : ports) {
+                if (port.path("containerPort").asInt(0) == FRONTEND_CONTAINER_PORT) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private Map<String, Integer> loadServiceNodePorts() {
+        Map<String, Integer> nodePorts = new HashMap<>();
+        try {
+            String token = readServiceAccountToken();
+            if (token == null) {
+                return nodePorts;
+            }
+            String url = "https://kubernetes.default.svc/api/v1/namespaces/"
+                    + kubernetesNamespace + "/services";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return nodePorts;
+            }
+            JsonNode items = objectMapper.readTree(response.body()).path("items");
+            if (!items.isArray()) {
+                return nodePorts;
+            }
+            for (JsonNode item : items) {
+                String name = item.path("metadata").path("name").asText(null);
+                if (name == null || !ProductFrontendCatalogRules.isProvisionedProductFrontendName(name)) {
+                    continue;
+                }
+                JsonNode ports = item.path("spec").path("ports");
+                if (ports.isArray() && !ports.isEmpty()) {
+                    int np = ports.get(0).path("nodePort").asInt(0);
+                    if (np > 0) {
+                        nodePorts.put(name, np);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("Catalog sync: could not load service node ports: {}", ex.getMessage());
+        }
+        return nodePorts;
     }
 
     private String readServiceAccountToken() {
@@ -235,7 +294,9 @@ public class DeployedProductCatalogSyncService {
         return "http://" + serviceName + "." + kubernetesNamespace + ".svc.cluster.local";
     }
 
-    public record RealmProductRef(String realmName, String productId, String serviceBaseName) {}
+    private record DiscoveredFrontend(String deploymentName, Integer nodePort, String frontendUrl) {}
 
-    private record DiscoveredFrontend(String serviceName, Integer nodePort, String frontendUrl) {}
+    /** @deprecated Use {@link ProductFrontendCatalogRules.RealmProductRef} */
+    @Deprecated
+    public record RealmProductRef(String realmName, String productId, String serviceBaseName) {}
 }

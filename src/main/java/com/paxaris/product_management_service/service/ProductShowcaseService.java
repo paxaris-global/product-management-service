@@ -58,6 +58,9 @@ public class ProductShowcaseService {
             if (realmFilter != null && !realmFilter.equals(mapping.getRealmName())) {
                 continue;
             }
+            if (!catalogSync.isCatalogProduct(mapping.getRealmName(), mapping.getProductId())) {
+                continue;
+            }
             String key = catalogKey(mapping.getRealmName(), mapping.getProductId());
             ProductShowcase captured = showcaseByKey.get(key);
             catalog.add(toCatalogEntry(mapping, captured));
@@ -78,6 +81,9 @@ public class ProductShowcaseService {
             if (realmFilter != null && !realmFilter.equals(orphan.getRealmName())) {
                 continue;
             }
+            if (!catalogSync.isCatalogProduct(orphan.getRealmName(), orphan.getProductId())) {
+                continue;
+            }
             catalog.add(toResponse(orphan, orphan.getProductName()));
         }
 
@@ -92,9 +98,12 @@ public class ProductShowcaseService {
     @Transactional
     public int syncCatalogFromCluster() {
         int registered = catalogSync.syncDeployedProductsFromKubernetes();
-        urlMappingRepository.findAllByOrderByRealmNameAscProductIdAsc().forEach(mapping ->
-                provisioningService.getProductDeploymentStatus(mapping.getRealmName(), mapping.getProductId())
-        );
+        urlMappingRepository.findAllByOrderByRealmNameAscProductIdAsc().stream()
+                .filter(m -> catalogSync.isCatalogProduct(m.getRealmName(), m.getProductId()))
+                .forEach(mapping ->
+                        provisioningService.getProductDeploymentStatus(
+                                mapping.getRealmName(), mapping.getProductId())
+                );
         return registered;
     }
 
