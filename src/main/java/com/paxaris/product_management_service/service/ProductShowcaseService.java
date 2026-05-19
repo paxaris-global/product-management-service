@@ -33,7 +33,6 @@ public class ProductShowcaseService {
     private final ProvisioningService provisioningService;
     private final ProductShowcaseCaptureService captureService;
     private final DeployedProductCatalogSyncService catalogSync;
-    private final ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
 
     /**
      * Lists every provisioned product (URL mapping), merged with captured showcase data when present.
@@ -94,7 +93,7 @@ public class ProductShowcaseService {
     public int syncCatalogFromCluster() {
         int registered = catalogSync.syncDeployedProductsFromKubernetes();
         urlMappingRepository.findAllByOrderByRealmNameAscProductIdAsc().forEach(mapping ->
-                showcaseCaptureOrchestrator.captureWhenReadyIfAbsent(mapping.getRealmName(), mapping.getProductId())
+                provisioningService.getProductDeploymentStatus(mapping.getRealmName(), mapping.getProductId())
         );
         return registered;
     }
