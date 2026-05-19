@@ -19,9 +19,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Registers provisioned <strong>product UI frontends</strong> from Kubernetes into
@@ -63,6 +65,33 @@ public class DeployedProductCatalogSyncService {
         return ProductFrontendCatalogRules.isProvisionedProductFrontendName(
                 ProductFrontendCatalogRules.toFrontendDeploymentName(realmName.trim(), productId.trim())
         );
+    }
+
+    /**
+     * Deployment names for product UI frontends currently running in the cluster (port 80).
+     */
+    public Set<String> liveProductFrontendDeploymentNames() {
+        if (!kubernetesEnabled) {
+            return Set.of();
+        }
+        Map<String, Integer> serviceNodePorts = loadServiceNodePorts();
+        return discoverProductFrontendDeployments(serviceNodePorts).stream()
+                .map(DiscoveredFrontend::deploymentName)
+                .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+    }
+
+    public boolean isLiveCatalogProduct(String realmName, String productId) {
+        if (!isCatalogProduct(realmName, productId)) {
+            return false;
+        }
+        String deploymentName = ProductFrontendCatalogRules.toFrontendDeploymentName(
+                realmName.trim(), productId.trim());
+        Set<String> live = liveProductFrontendDeploymentNames();
+        if (live.isEmpty()) {
+            // Local/dev without K8 API: fall back to naming rules only.
+            return true;
+        }
+        return live.contains(deploymentName);
     }
 
     Optional<ProductFrontendCatalogRules.RealmProductRef> parseFrontendServiceName(String serviceName) {
