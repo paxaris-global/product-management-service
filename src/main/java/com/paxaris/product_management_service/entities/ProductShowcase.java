@@ -54,6 +54,11 @@ public class ProductShowcase {
     @Column(name = "preview_image", columnDefinition = "LONGTEXT")
     private String previewImage;
 
+    /** When true, catalog uses the uploaded banner instead of Playwright screenshots. */
+    @Column(name = "custom_banner", nullable = false)
+    @Builder.Default
+    private boolean customBanner = false;
+
     @Column(name = "captured_at", nullable = false)
     private Instant capturedAt;
 }

@@ -8,8 +8,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -60,6 +62,34 @@ public class ProductShowcaseController {
                         HttpStatus.NOT_FOUND,
                         "Showcase not found for realm='" + realmName + "', product='" + productId + "'"
                 ));
+    }
+
+    @PostMapping(
+            value = "/{realmName}/{productId}/banner",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @Operation(
+            summary = "Upload product catalog banner",
+            description = "Stores a user-provided banner image for the home/products catalog card (used after ArgoCD deploy)"
+    )
+    public ResponseEntity<ProductShowcaseResponse> uploadBanner(
+            @PathVariable String realmName,
+            @PathVariable String productId,
+            @RequestParam("bannerImage") MultipartFile bannerImage,
+            @RequestParam(value = "productName", required = false) String productName
+    ) {
+        try {
+            return ResponseEntity.ok(showcaseService.uploadBanner(realmName, productId, bannerImage, productName));
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
+        } catch (Exception ex) {
+            log.error("Failed to upload banner for {} / {}: {}", realmName, productId, ex.getMessage(), ex);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to upload product banner: " + ex.getMessage(),
+                    ex
+            );
+        }
     }
 
     @PostMapping("/{realmName}/{productId}/capture")

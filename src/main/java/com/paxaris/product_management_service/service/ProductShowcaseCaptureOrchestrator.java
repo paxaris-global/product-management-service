@@ -30,6 +30,10 @@ public class ProductShowcaseCaptureOrchestrator {
         }
         try {
             var existing = showcaseRepository.findByRealmNameAndProductId(realmName, productId);
+            if (existing.isPresent() && ProductBannerService.hasCustomBanner(existing.get())) {
+                log.debug("Custom banner set for {} / {}, skipping auto-capture", realmName, productId);
+                return;
+            }
             if (existing.isPresent() && !isPlaceholderOnly(existing.get())) {
                 log.debug("Showcase already exists for {} / {}, skipping auto-capture", realmName, productId);
                 return;

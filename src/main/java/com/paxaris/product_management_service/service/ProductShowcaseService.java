@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ public class ProductShowcaseService {
     private final DeployedProductCatalogSyncService catalogSync;
     private final ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
     private final ProductPublicUrlService publicUrlService;
+    private final ProductBannerService bannerService;
 
     public ProductShowcaseService(
             ProductShowcaseRepository showcaseRepository,
@@ -43,7 +45,8 @@ public class ProductShowcaseService {
             ProductShowcaseCaptureService captureService,
             DeployedProductCatalogSyncService catalogSync,
             @Lazy ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator,
-            ProductPublicUrlService publicUrlService
+            ProductPublicUrlService publicUrlService,
+            ProductBannerService bannerService
     ) {
         this.showcaseRepository = showcaseRepository;
         this.urlMappingRepository = urlMappingRepository;
@@ -52,6 +55,7 @@ public class ProductShowcaseService {
         this.catalogSync = catalogSync;
         this.showcaseCaptureOrchestrator = showcaseCaptureOrchestrator;
         this.publicUrlService = publicUrlService;
+        this.bannerService = bannerService;
     }
 
     /**
@@ -87,7 +91,7 @@ public class ProductShowcaseService {
             catalog.add(toCatalogEntry(mapping, captured));
             showcaseByKey.remove(key);
 
-            if (captured == null || isPlaceholderOnly(captured)) {
+            if (captured == null || shouldAutoCapture(captured)) {
                 showcaseCaptureOrchestrator.captureWhenReadyIfAbsent(
                         mapping.getRealmName(), mapping.getProductId());
             }
@@ -131,6 +135,19 @@ public class ProductShowcaseService {
     }
 
     @Transactional
+    public ProductShowcaseResponse uploadBanner(
+            String realmName,
+            String productId,
+            MultipartFile bannerImage,
+            String productName
+    ) throws java.io.IOException {
+        String dataUrl = bannerService.toDataUrl(bannerImage);
+        ProductShowcase saved = bannerService.upsertBannerShowcase(realmName, productId, dataUrl, productName);
+        log.info("Saved custom banner for realm='{}', product='{}'", realmName, productId);
+        return toResponse(saved, saved.getProductName());
+    }
+
+    @Transactional
     public ProductShowcaseResponse captureShowcase(
             String realmName,
             String productId,
@@ -165,12 +182,21 @@ public class ProductShowcaseService {
         ProductShowcase showcase = showcaseRepository.findByRealmNameAndProductId(realmName, productId)
                 .orElseGet(ProductShowcase::new);
 
+        boolean preserveBanner = ProductBannerService.hasCustomBanner(showcase);
+        String existingPreview = showcase.getPreviewImage();
+
         showcase.setRealmName(realmName);
         showcase.setProductId(productId);
         showcase.setProductName(displayName);
         showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
         showcase.setDescription(captured.description());
-        showcase.setPreviewImage(captured.previewImage());
+        if (preserveBanner && existingPreview != null && !existingPreview.isBlank()) {
+            showcase.setPreviewImage(existingPreview);
+            showcase.setCustomBanner(true);
+        } else {
+            showcase.setPreviewImage(captured.previewImage());
+            showcase.setCustomBanner(false);
+        }
         showcase.setCapturedAt(Instant.now());
 
         ProductShowcase saved = showcaseRepository.save(showcase);
@@ -178,7 +204,7 @@ public class ProductShowcaseService {
     }
 
     private ProductShowcaseResponse toCatalogEntry(ProductUrlMapping mapping, ProductShowcase captured) {
-        if (captured != null && !isPlaceholderOnly(captured)) {
+        if (captured != null && !shouldAutoCapture(captured)) {
             return toResponse(captured, captured.getProductName());
         }
 
@@ -255,6 +281,13 @@ public class ProductShowcaseService {
 
     private static String catalogKey(String realmName, String productId) {
         return realmName + ":" + productId;
+    }
+
+    private static boolean shouldAutoCapture(ProductShowcase showcase) {
+        if (ProductBannerService.hasCustomBanner(showcase)) {
+            return false;
+        }
+        return isPlaceholderOnly(showcase);
     }
 
     private static boolean isPlaceholderOnly(ProductShowcase showcase) {
