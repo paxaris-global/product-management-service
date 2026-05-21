@@ -1121,17 +1121,17 @@ public class ProvisioningService {
             envBlock.append("              value: \"6379\"\n");
         }
 
+        // Use explicit lines (not text blocks) so incidental-indent stripping cannot break pod spec YAML.
         String initContainers = "";
         if (stack.needsPostgres()) {
-            initContainers = """
-                      initContainers:
-                        - name: wait-for-postgres
-                          image: postgres:16-alpine
-                          command:
-                            - sh
-                            - -c
-                            - until pg_isready -h %s -p 5432 -U %s; do echo waiting for postgres; sleep 2; done
-                    """.formatted(postgresHost, stack.databaseUser());
+            initContainers = "      initContainers:\n" +
+                    "        - name: wait-for-postgres\n" +
+                    "          image: postgres:16-alpine\n" +
+                    "          command:\n" +
+                    "            - sh\n" +
+                    "            - -c\n" +
+                    "            - until pg_isready -h " + postgresHost + " -p 5432 -U " + stack.databaseUser()
+                    + "; do echo waiting for postgres; sleep 2; done\n";
         }
 
         return "apiVersion: apps/v1\n" +

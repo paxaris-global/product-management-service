@@ -8,6 +8,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.lang.reflect.Method;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -124,6 +126,40 @@ class ProvisioningServiceTest {
         assertThrows(IllegalStateException.class, () -> {
             invalidService.provision("test-repo", dummyFile);
         });
+    }
+
+    @Test
+    void generateBackendK8Manifest_placesContainersUnderPodSpec() throws Exception {
+        Class<?> stackClass = Class.forName(
+                "com.paxaris.product_management_service.service.ProvisioningService$DataStackRequirements");
+        var stackCtor = stackClass.getDeclaredConstructor(
+                boolean.class,
+                boolean.class,
+                String.class,
+                String.class,
+                String.class);
+        stackCtor.setAccessible(true);
+        Object stack = stackCtor.newInstance(true, true, "yatrify", "yatrify_user", "yatrify_pass");
+
+        Method generate = ProvisioningService.class.getDeclaredMethod(
+                "generateBackendK8Manifest",
+                String.class,
+                Integer.class,
+                stackClass,
+                String.class);
+        generate.setAccessible(true);
+
+        String yaml = (String) generate.invoke(
+                provisioningService,
+                "paxarisglobal-admin-yatrifys-backend",
+                32413,
+                stack,
+                "paxarisglobal-admin-yatrifys-backend");
+
+        assertTrue(yaml.contains("    spec:\n      initContainers:"), yaml);
+        assertTrue(yaml.contains("      imagePullSecrets:"), yaml);
+        assertTrue(yaml.contains("      containers:"), yaml);
+        assertFalse(yaml.contains("\n  initContainers:"), yaml);
     }
 
     @Test
