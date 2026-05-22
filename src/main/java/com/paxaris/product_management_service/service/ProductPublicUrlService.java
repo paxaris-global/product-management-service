@@ -43,8 +43,8 @@ public class ProductPublicUrlService {
     }
 
     public String toProxyBrowserPath(String realmName, String productId) {
-        String realm = realmName == null ? "" : realmName.trim();
-        String product = productId == null ? "" : productId.trim();
+        String realm = realmName == null ? "" : realmName.trim().toLowerCase(Locale.ROOT);
+        String product = productId == null ? "" : productId.trim().toLowerCase(Locale.ROOT);
         return "/product-ui/" + realm + "/" + product + "/";
     }
 

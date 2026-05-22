@@ -88,15 +88,12 @@ public class ProductShowcaseService {
             if (!catalogSync.isLiveCatalogProduct(mapping.getRealmName(), mapping.getProductId(), liveFrontends)) {
                 continue;
             }
-            String key = catalogKey(
-                    mapping.getRealmName().toLowerCase(Locale.ROOT),
-                    mapping.getProductId().toLowerCase(Locale.ROOT));
+            String key = catalogKey(mapping.getRealmName(), mapping.getProductId());
             if (!listedKeys.add(key)) {
                 continue;
             }
-            ProductShowcase captured = showcaseByKey.get(key);
+            ProductShowcase captured = showcaseByKey.remove(key);
             catalog.add(toCatalogEntry(mapping, captured));
-            showcaseByKey.remove(key);
 
             if (captured == null || shouldAutoCapture(captured)) {
                 showcaseCaptureOrchestrator.captureWhenReadyIfAbsent(
@@ -106,10 +103,14 @@ public class ProductShowcaseService {
 
         // Legacy rows: showcase exists without a URL mapping (should be rare).
         for (ProductShowcase orphan : showcaseByKey.values()) {
-            if (realmFilter != null && !realmFilter.equals(orphan.getRealmName())) {
+            if (realmFilter != null && !realmFilter.equalsIgnoreCase(orphan.getRealmName())) {
                 continue;
             }
             if (!catalogSync.isLiveCatalogProduct(orphan.getRealmName(), orphan.getProductId(), liveFrontends)) {
+                continue;
+            }
+            String key = catalogKey(orphan.getRealmName(), orphan.getProductId());
+            if (!listedKeys.add(key)) {
                 continue;
             }
             catalog.add(toResponse(orphan, orphan.getProductName()));
@@ -235,10 +236,13 @@ public class ProductShowcaseService {
             browserUrl = publicUrlService.rewriteForBrowser(mapping.getFrontendBaseUrl());
         }
 
+        String canonicalRealm = canonicalRealm(mapping.getRealmName());
+        String canonicalProductId = canonicalProductId(mapping.getProductId());
+
         return new ProductShowcaseResponse(
                 id,
-                mapping.getRealmName(),
-                mapping.getProductId(),
+                canonicalRealm,
+                canonicalProductId,
                 productName,
                 browserUrl,
                 description,
@@ -286,10 +290,6 @@ public class ProductShowcaseService {
         return productName + " — live on Kubernetes (realm " + realmName + "). Screenshot updating…";
     }
 
-    private static String catalogKey(String realmName, String productId) {
-        return realmName + ":" + productId;
-    }
-
     private static boolean shouldAutoCapture(ProductShowcase showcase) {
         if (ProductBannerService.hasCustomBanner(showcase)) {
             return false;
@@ -303,23 +303,38 @@ public class ProductShowcaseService {
     }
 
     private ProductShowcaseResponse toResponse(ProductShowcase showcase, String productName) {
+        String canonicalRealm = canonicalRealm(showcase.getRealmName());
+        String canonicalProductId = canonicalProductId(showcase.getProductId());
+
         String browserUrl = urlMappingRepository
-                .findByRealmNameAndProductId(showcase.getRealmName(), showcase.getProductId())
+                .findByRealmNameIgnoreCaseAndProductIdIgnoreCase(canonicalRealm, canonicalProductId)
                 .map(publicUrlService::toBrowserUrl)
                 .filter(url -> url != null && !url.isBlank())
                 .orElseGet(() -> publicUrlService.useProxyBrowserPaths()
-                        ? publicUrlService.toProxyBrowserPath(showcase.getRealmName(), showcase.getProductId())
+                        ? publicUrlService.toProxyBrowserPath(canonicalRealm, canonicalProductId)
                         : publicUrlService.rewriteForBrowser(showcase.getFrontendUrl()));
 
         return new ProductShowcaseResponse(
                 showcase.getId(),
-                showcase.getRealmName(),
-                showcase.getProductId(),
+                canonicalRealm,
+                canonicalProductId,
                 productName,
                 browserUrl,
                 showcase.getDescription(),
                 showcase.getPreviewImage(),
                 showcase.getCapturedAt()
         );
+    }
+
+    private static String canonicalRealm(String realmName) {
+        return realmName == null ? "" : realmName.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String canonicalProductId(String productId) {
+        return productId == null ? "" : productId.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String catalogKey(String realmName, String productId) {
+        return canonicalRealm(realmName) + ":" + canonicalProductId(productId);
     }
 }
