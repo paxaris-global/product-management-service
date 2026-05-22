@@ -1382,7 +1382,7 @@ public class ProvisioningService {
                              "    argocd-image-updater.argoproj.io/image-list: \"" + imageUpdaterAlias + "=" + imageRepo + "\"\n" +
                              "    argocd-image-updater.argoproj.io/" + imageUpdaterAlias + ".update-strategy: latest\n" +
                "spec:\n" +
-               "  replicas: 2\n" +
+               "  replicas: 1\n" +
                "  selector:\n" +
                "    matchLabels:\n" +
              "      app: " + k8Name + "\n" +
