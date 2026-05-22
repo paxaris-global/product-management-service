@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -79,14 +80,20 @@ public class ProductShowcaseService {
         }
 
         List<ProductShowcaseResponse> catalog = new ArrayList<>();
+        Set<String> listedKeys = new HashSet<>();
         for (ProductUrlMapping mapping : mappings) {
-            if (realmFilter != null && !realmFilter.equals(mapping.getRealmName())) {
+            if (realmFilter != null && !realmFilter.equalsIgnoreCase(mapping.getRealmName())) {
                 continue;
             }
             if (!catalogSync.isLiveCatalogProduct(mapping.getRealmName(), mapping.getProductId(), liveFrontends)) {
                 continue;
             }
-            String key = catalogKey(mapping.getRealmName(), mapping.getProductId());
+            String key = catalogKey(
+                    mapping.getRealmName().toLowerCase(Locale.ROOT),
+                    mapping.getProductId().toLowerCase(Locale.ROOT));
+            if (!listedKeys.add(key)) {
+                continue;
+            }
             ProductShowcase captured = showcaseByKey.get(key);
             catalog.add(toCatalogEntry(mapping, captured));
             showcaseByKey.remove(key);

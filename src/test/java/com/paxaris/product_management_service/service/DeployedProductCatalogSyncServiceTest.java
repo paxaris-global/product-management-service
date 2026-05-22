@@ -51,4 +51,12 @@ class DeployedProductCatalogSyncServiceTest {
         assertFalse(catalogSync.isCatalogProduct("yatrify", "redis"));
         assertFalse(catalogSync.isCatalogProduct("", "test"));
     }
+
+    @Test
+    void isLiveCatalogProduct_matchesClusterDeploymentRegardlessOfRealmCasing() {
+        var live = java.util.Set.of("paxarisglobal-admin-yatrify-frontend");
+        assertTrue(catalogSync.isLiveCatalogProduct("paxarisGlobal", "yatrify", live));
+        assertTrue(catalogSync.isLiveCatalogProduct("paxarisglobal", "yatrify", live));
+        assertFalse(catalogSync.isLiveCatalogProduct("paxarisGlobal", "missing", live));
+    }
 }

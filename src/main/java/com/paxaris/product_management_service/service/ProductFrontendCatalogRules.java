@@ -27,7 +27,9 @@ final class ProductFrontendCatalogRules {
     }
 
     static String toFrontendDeploymentName(String realmName, String productId) {
-        return realmName + "-admin-" + productId + FRONTEND_SUFFIX;
+        String realm = realmName == null ? "" : realmName.trim().toLowerCase(Locale.ROOT);
+        String product = productId == null ? "" : productId.trim().toLowerCase(Locale.ROOT);
+        return realm + "-admin-" + product + FRONTEND_SUFFIX;
     }
 
     static Optional<RealmProductRef> parseRealmAndProduct(String frontendDeploymentName) {

@@ -131,7 +131,8 @@ public class DeployedProductCatalogSyncService {
         String backendServiceName = ref.serviceBaseName() + BACKEND_SUFFIX;
 
         Optional<ProductUrlMapping> existing =
-                urlMappingRepository.findByRealmNameAndProductId(ref.realmName(), ref.productId());
+                urlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        ref.realmName(), ref.productId());
 
         String frontendUrl = frontend.frontendUrl();
         String backendUrl = resolveBackendUrl(backendServiceName, existing);

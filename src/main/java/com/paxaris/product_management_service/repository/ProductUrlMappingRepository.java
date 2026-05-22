@@ -11,6 +11,10 @@ public interface ProductUrlMappingRepository extends JpaRepository<ProductUrlMap
 
     Optional<ProductUrlMapping> findByRealmNameAndProductId(String realmName, String productId);
 
+    Optional<ProductUrlMapping> findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+            String realmName,
+            String productId);
+
     @Query("select p.frontendNodePort from ProductUrlMapping p")
     List<Integer> findFrontendNodePorts();
 

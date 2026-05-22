@@ -168,7 +168,8 @@ public class ProvisioningService {
      */
     public ProductDeploymentStatusResponse getProductDeploymentStatus(String realmName, String productId) {
         Optional<ProductUrlMapping> mappingOpt =
-                productUrlMappingRepository.findByRealmNameAndProductId(realmName, productId);
+                productUrlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        realmName, productId);
         if (mappingOpt.isEmpty()) {
             return new ProductDeploymentStatusResponse(
                     "not_found",
@@ -1421,8 +1422,12 @@ public class ProvisioningService {
             throw new IllegalArgumentException("Product ID cannot be blank");
         }
 
+        String normalizedRealm = realmName.trim().toLowerCase(Locale.ROOT);
+        String normalizedProductId = productId.trim().toLowerCase(Locale.ROOT);
+
         Optional<ProductUrlMapping> existing =
-                productUrlMappingRepository.findByRealmNameAndProductId(realmName, productId);
+                productUrlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        normalizedRealm, normalizedProductId);
         if (existing.isPresent()) {
             return existing.get();
         }
@@ -1436,8 +1441,8 @@ public class ProvisioningService {
         int backendNodePort = nextAvailablePort(backendNodePortStart, backendNodePortEnd, usedPorts);
 
         ProductUrlMapping mapping = ProductUrlMapping.builder()
-                .realmName(realmName)
-                .productId(productId)
+                .realmName(normalizedRealm)
+                .productId(normalizedProductId)
                 .frontendNodePort(frontendNodePort)
                 .backendNodePort(backendNodePort)
                 .frontendBaseUrl(buildExternalUrl(frontendNodePort))
