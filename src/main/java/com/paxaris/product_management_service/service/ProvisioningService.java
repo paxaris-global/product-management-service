@@ -35,7 +35,10 @@ public class ProvisioningService {
     private static final long REPO_READY_RETRY_DELAY_MS = 1500;
     private static final Set<Integer> RESERVED_NODE_PORTS = Set.of(32080, 32087, 32088, 31686, 30417, 30418);
     private static final List<String> SKIPPED_PATH_SEGMENTS = List.of(
-            "/.git/", "/node_modules/", "/target/", "/build/", "/dist/", "/out/", "/.idea/", "/.vscode/"
+            "/.git/", "/node_modules/", "/target/", "/build/", "/dist/", "/out/",
+            "/.idea/", "/.vscode/", "/__macosx/", "/.angular/", "/.nx/", "/.gradle/",
+            "/.mvn/", "/.next/", "/.nuxt/", "/.cache/", "/.pytest_cache/", "/.venv/",
+            "/venv/", "/__pycache__/", "/coverage/", "/.sonar/"
     );
 
     private final String githubToken;
@@ -816,9 +819,8 @@ public class ProvisioningService {
         Files.walk(root)
                 .filter(Files::isRegularFile)
                 .forEach(file -> {
+                    String path = root.relativize(file).toString().replace("\\", "/");
                     try {
-                        String path = root.relativize(file).toString().replace("\\", "/");
-
                         if (shouldSkipPath(path)) {
                             skippedFiles.add(path);
                             return;
@@ -836,6 +838,11 @@ public class ProvisioningService {
                         String blobSha = createBlob(repo, content);
                         fileRefs.add(new FileBlobRef(path, blobSha));
                     } catch (IOException e) {
+                        if (shouldSkipPath(path)) {
+                            skippedFiles.add(path);
+                            log.warn("Skipping unreadable generated/junk file '{}': {}", path, e.getMessage());
+                            return;
+                        }
                         throw new RuntimeException("Error reading file for GitHub upload: " + file, e);
                     } catch (Exception e) {
                         throw new RuntimeException("Error creating GitHub blob for file: " + file, e);
@@ -960,9 +967,21 @@ public class ProvisioningService {
     }
 
     private boolean shouldSkipPath(String relativePath) {
-        String normalized = "/" + relativePath.toLowerCase(Locale.ROOT) + "/";
+        if (relativePath == null || relativePath.isBlank()) {
+            return true;
+        }
+        String posix = relativePath.replace('\\', '/');
+        String normalized = "/" + posix.toLowerCase(Locale.ROOT) + "/";
         for (String segment : SKIPPED_PATH_SEGMENTS) {
             if (normalized.contains(segment)) {
+                return true;
+            }
+        }
+        for (String part : posix.split("/")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            if (part.startsWith("._") || ".DS_Store".equals(part)) {
                 return true;
             }
         }
@@ -1024,6 +1043,9 @@ public class ProvisioningService {
         try (ZipArchiveInputStream zis = new ZipArchiveInputStream(zipFile.getInputStream())) {
             ZipArchiveEntry entry;
             while ((entry = zis.getNextZipEntry()) != null) {
+                if (shouldSkipPath(entry.getName())) {
+                    continue;
+                }
                 Path resolvedPath = extractPath.resolve(entry.getName()).normalize();
                 if (!resolvedPath.startsWith(extractPath)) {
                     throw new IOException("Zip Slip security violation: " + entry.getName());

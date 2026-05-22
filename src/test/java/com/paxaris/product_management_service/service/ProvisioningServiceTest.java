@@ -187,6 +187,20 @@ class ProvisioningServiceTest {
     }
 
     @Test
+    void shouldSkipPath_ignoresMacOsZipAndAngularCacheArtifacts() throws Exception {
+        Method shouldSkipPath = ProvisioningService.class.getDeclaredMethod("shouldSkipPath", String.class);
+        shouldSkipPath.setAccessible(true);
+
+        assertTrue((Boolean) shouldSkipPath.invoke(provisioningService,
+                "__MACOSX/frontend/.angular/cache/21.2.11/frontend/vite/deps/._chunk-DNH2RAWC.js"));
+        assertTrue((Boolean) shouldSkipPath.invoke(provisioningService, "frontend/.angular/cache/deps/chunk.js"));
+        assertTrue((Boolean) shouldSkipPath.invoke(provisioningService, "frontend/node_modules/foo/index.js"));
+        assertTrue((Boolean) shouldSkipPath.invoke(provisioningService, "backend/target/classes/App.class"));
+        assertFalse((Boolean) shouldSkipPath.invoke(provisioningService, "frontend/src/app/app.component.ts"));
+        assertFalse((Boolean) shouldSkipPath.invoke(provisioningService, "backend/src/main/java/App.java"));
+    }
+
+    @Test
     void testValidateConfigWithMissingOrg() {
         ProvisioningService invalidService = new ProvisioningService(
             "test-token",
