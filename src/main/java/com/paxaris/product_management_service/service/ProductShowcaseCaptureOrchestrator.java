@@ -24,12 +24,12 @@ public class ProductShowcaseCaptureOrchestrator {
 
     @Async
     public void captureWhenReadyIfAbsent(String realmName, String productId) {
-        String key = realmName + ":" + productId;
+        String key = catalogKey(realmName, productId);
         if (!inFlight.add(key)) {
             return;
         }
         try {
-            var existing = showcaseRepository.findByRealmNameAndProductId(realmName, productId);
+            var existing = showcaseRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(realmName, productId);
             if (existing.isPresent() && ProductBannerService.hasCustomBanner(existing.get())) {
                 log.debug("Custom banner set for {} / {}, skipping auto-capture", realmName, productId);
                 return;
@@ -53,5 +53,13 @@ public class ProductShowcaseCaptureOrchestrator {
         return preview == null
                 || preview.isBlank()
                 || preview.startsWith("data:image/svg+xml");
+    }
+
+    private static String catalogKey(String realmName, String productId) {
+        return normalize(realmName) + ":" + normalize(productId);
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
     }
 }

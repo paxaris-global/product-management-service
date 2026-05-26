@@ -67,7 +67,8 @@ public class ProductBannerService {
             String dataUrl,
             String productName
     ) {
-        ProductUrlMapping mapping = urlMappingRepository.findByRealmNameAndProductId(realmName, productId)
+        ProductUrlMapping mapping = urlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        realmName, productId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Product URLs are not allocated for realm='" + realmName + "', product='" + productId + "'"
                 ));
@@ -81,17 +82,18 @@ public class ProductBannerService {
             browserUrl = publicUrlService.rewriteForBrowser(mapping.getFrontendBaseUrl());
         }
 
-        ProductShowcase showcase = showcaseRepository.findByRealmNameAndProductId(realmName, productId)
+        ProductShowcase showcase = showcaseRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        mapping.getRealmName(), mapping.getProductId())
                 .orElseGet(ProductShowcase::new);
 
-        showcase.setRealmName(realmName);
-        showcase.setProductId(productId);
+        showcase.setRealmName(mapping.getRealmName());
+        showcase.setProductId(mapping.getProductId());
         showcase.setProductName(displayName);
         showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
         showcase.setPreviewImage(dataUrl);
         showcase.setCustomBanner(true);
         if (showcase.getDescription() == null || showcase.getDescription().isBlank()) {
-            showcase.setDescription(displayName + " — provisioned product (realm " + realmName + ").");
+            showcase.setDescription(displayName + " — provisioned product (realm " + mapping.getRealmName() + ").");
         }
         showcase.setCapturedAt(Instant.now());
 

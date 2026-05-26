@@ -10,7 +10,11 @@ public interface ProductShowcaseRepository extends JpaRepository<ProductShowcase
 
     Optional<ProductShowcase> findByRealmNameAndProductId(String realmName, String productId);
 
+    Optional<ProductShowcase> findByRealmNameIgnoreCaseAndProductIdIgnoreCase(String realmName, String productId);
+
     List<ProductShowcase> findAllByOrderByCapturedAtDesc();
 
     List<ProductShowcase> findByRealmNameOrderByCapturedAtDesc(String realmName);
+
+    List<ProductShowcase> findByRealmNameIgnoreCaseOrderByCapturedAtDesc(String realmName);
 }

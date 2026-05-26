@@ -74,9 +74,13 @@ public class ProductShowcaseService {
         Map<String, ProductShowcase> showcaseByKey = new HashMap<>();
         List<ProductShowcase> showcases = realmFilter == null
                 ? showcaseRepository.findAllByOrderByCapturedAtDesc()
-                : showcaseRepository.findByRealmNameOrderByCapturedAtDesc(realmFilter);
+                : showcaseRepository.findByRealmNameIgnoreCaseOrderByCapturedAtDesc(realmFilter);
         for (ProductShowcase row : showcases) {
-            showcaseByKey.put(catalogKey(row.getRealmName(), row.getProductId()), row);
+            showcaseByKey.merge(
+                    catalogKey(row.getRealmName(), row.getProductId()),
+                    row,
+                    ProductShowcaseService::preferCatalogShowcase
+            );
         }
 
         List<ProductShowcaseResponse> catalog = new ArrayList<>();
@@ -138,7 +142,7 @@ public class ProductShowcaseService {
 
     @Transactional(readOnly = true)
     public Optional<ProductShowcaseResponse> getShowcase(String realmName, String productId) {
-        return showcaseRepository.findByRealmNameAndProductId(realmName, productId)
+        return showcaseRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(realmName, productId)
                 .map(row -> toResponse(row, row.getProductName()));
     }
 
@@ -161,7 +165,8 @@ public class ProductShowcaseService {
             String productId,
             CaptureShowcaseRequest request
     ) {
-        ProductUrlMapping mapping = urlMappingRepository.findByRealmNameAndProductId(realmName, productId)
+        ProductUrlMapping mapping = urlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        realmName, productId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Product URLs are not allocated for realm='" + realmName + "', product='" + productId + "'"
                 ));
@@ -187,14 +192,15 @@ public class ProductShowcaseService {
             displayName = productName;
         }
 
-        ProductShowcase showcase = showcaseRepository.findByRealmNameAndProductId(realmName, productId)
+        ProductShowcase showcase = showcaseRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        mapping.getRealmName(), mapping.getProductId())
                 .orElseGet(ProductShowcase::new);
 
         boolean preserveBanner = ProductBannerService.hasCustomBanner(showcase);
         String existingPreview = showcase.getPreviewImage();
 
-        showcase.setRealmName(realmName);
-        showcase.setProductId(productId);
+        showcase.setRealmName(mapping.getRealmName());
+        showcase.setProductId(mapping.getProductId());
         showcase.setProductName(displayName);
         showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
         showcase.setDescription(captured.description());
@@ -295,6 +301,24 @@ public class ProductShowcaseService {
             return false;
         }
         return isPlaceholderOnly(showcase);
+    }
+
+    private static ProductShowcase preferCatalogShowcase(ProductShowcase existing, ProductShowcase candidate) {
+        if (ProductBannerService.hasCustomBanner(existing)) {
+            return existing;
+        }
+        if (ProductBannerService.hasCustomBanner(candidate)) {
+            return candidate;
+        }
+        Instant existingCapturedAt = existing.getCapturedAt();
+        Instant candidateCapturedAt = candidate.getCapturedAt();
+        if (existingCapturedAt == null) {
+            return candidate;
+        }
+        if (candidateCapturedAt == null) {
+            return existing;
+        }
+        return candidateCapturedAt.isAfter(existingCapturedAt) ? candidate : existing;
     }
 
     private static boolean isPlaceholderOnly(ProductShowcase showcase) {
