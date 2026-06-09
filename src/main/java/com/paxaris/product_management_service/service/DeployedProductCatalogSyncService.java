@@ -50,7 +50,7 @@ public class DeployedProductCatalogSyncService {
     @Value("${provisioning.external-url-scheme:http}")
     private String externalUrlScheme;
 
-    @Value("${provisioning.external-host:192.168.49.2}")
+    @Value("${provisioning.external-host:auto}")
     private String externalHost;
 
     /**
@@ -80,6 +80,38 @@ public class DeployedProductCatalogSyncService {
 
     public boolean isLiveCatalogProduct(String realmName, String productId) {
         return isLiveCatalogProduct(realmName, productId, liveProductFrontendDeploymentNames());
+    }
+
+    /** True when a platform UI deployment (e.g. paxo-frontend) is running in the cluster. */
+    public boolean isPlatformFrontendDeployed(String deploymentName) {
+        if (!kubernetesEnabled || deploymentName == null || deploymentName.isBlank()) {
+            return false;
+        }
+        try {
+            String token = readServiceAccountToken();
+            if (token == null) {
+                return false;
+            }
+            String url = "https://kubernetes.default.svc/apis/apps/v1/namespaces/"
+                    + kubernetesNamespace + "/deployments/" + deploymentName.trim();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(8))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                return false;
+            }
+            JsonNode status = objectMapper.readTree(response.body()).path("status");
+            int ready = status.path("readyReplicas").asInt(0);
+            return ready > 0;
+        } catch (Exception ex) {
+            log.debug("Platform frontend check failed for {}: {}", deploymentName, ex.getMessage());
+            return false;
+        }
     }
 
     public boolean isLiveCatalogProduct(String realmName, String productId, Set<String> liveDeployments) {
@@ -314,10 +346,70 @@ public class DeployedProductCatalogSyncService {
     private String buildExternalUrl(int nodePort) {
         String scheme = (externalUrlScheme == null || externalUrlScheme.isBlank())
                 ? "http" : externalUrlScheme.trim();
-        String host = (externalHost == null || externalHost.isBlank())
-                ? "192.168.49.2" : externalHost.trim();
+        String host = resolveExternalHost();
         host = host.replaceFirst("^https?://", "").replaceAll("/+$", "");
         return scheme + "://" + host + ":" + nodePort;
+    }
+
+    private String resolveExternalHost() {
+        String configured = externalHost == null ? "" : externalHost.trim();
+        if (!configured.isBlank()
+                && !configured.equalsIgnoreCase("auto")
+                && !configured.equalsIgnoreCase("minikube-auto")) {
+            return configured;
+        }
+        return discoverKubernetesNodeAddress().orElse("192.168.49.2");
+    }
+
+    private Optional<String> discoverKubernetesNodeAddress() {
+        try {
+            String token = readServiceAccountToken();
+            if (token == null) {
+                return Optional.empty();
+            }
+            String url = "https://kubernetes.default.svc/api/v1/nodes";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Authorization", "Bearer " + token)
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                return Optional.empty();
+            }
+            JsonNode items = objectMapper.readTree(response.body()).path("items");
+            if (!items.isArray()) {
+                return Optional.empty();
+            }
+            for (JsonNode node : items) {
+                JsonNode addresses = node.path("status").path("addresses");
+                if (!addresses.isArray()) {
+                    continue;
+                }
+                String internalIp = null;
+                for (JsonNode addr : addresses) {
+                    String type = addr.path("type").asText("");
+                    String value = addr.path("address").asText("");
+                    if (value == null || value.isBlank()) {
+                        continue;
+                    }
+                    if ("ExternalIP".equalsIgnoreCase(type)) {
+                        return Optional.of(value);
+                    }
+                    if ("InternalIP".equalsIgnoreCase(type) && internalIp == null) {
+                        internalIp = value;
+                    }
+                }
+                if (internalIp != null) {
+                    return Optional.of(internalIp);
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("Catalog sync: cannot resolve node address dynamically: {}", ex.getMessage());
+        }
+        return Optional.empty();
     }
 
     private String clusterServiceUrl(String serviceName) {

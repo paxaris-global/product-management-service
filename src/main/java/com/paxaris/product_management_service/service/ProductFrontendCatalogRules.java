@@ -1,6 +1,7 @@
 package com.paxaris.product_management_service.service;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -13,6 +14,11 @@ final class ProductFrontendCatalogRules {
 
     private static final String FRONTEND_SUFFIX = "-frontend";
     private static final Pattern ADMIN_SEGMENT = Pattern.compile("-admin-");
+
+    /** Platform UIs exposed as catalog products via /product-ui/{realm}/{productId}/ */
+    private static final Map<String, String> PLATFORM_PRODUCT_SERVICES = Map.of(
+            "paxo", "paxo-frontend"
+    );
 
     private static final Set<String> EXCLUDED_PLATFORM_FRONTENDS = Set.of(
             "paxo-frontend",
@@ -27,8 +33,23 @@ final class ProductFrontendCatalogRules {
     }
 
     static String toFrontendDeploymentName(String realmName, String productId) {
+        return toFrontendServiceName(realmName, productId);
+    }
+
+    static boolean isPlatformProductId(String productId) {
+        if (productId == null || productId.isBlank()) {
+            return false;
+        }
+        return PLATFORM_PRODUCT_SERVICES.containsKey(productId.trim().toLowerCase(Locale.ROOT));
+    }
+
+    static String toFrontendServiceName(String realmName, String productId) {
         String realm = realmName == null ? "" : realmName.trim().toLowerCase(Locale.ROOT);
         String product = productId == null ? "" : productId.trim().toLowerCase(Locale.ROOT);
+        String platformService = PLATFORM_PRODUCT_SERVICES.get(product);
+        if (platformService != null) {
+            return platformService;
+        }
         return realm + "-admin-" + product + FRONTEND_SUFFIX;
     }
 

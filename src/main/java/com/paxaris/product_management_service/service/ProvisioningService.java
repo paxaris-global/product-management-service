@@ -53,6 +53,7 @@ public class ProvisioningService {
     private final String dockerHubToken;
     private final ProductUrlMappingRepository productUrlMappingRepository;
     private final ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator;
+    private final ProductPublicUrlService publicUrlService;
     private final String externalUrlScheme;
     private final String externalHost;
     private final int frontendNodePortStart;
@@ -87,6 +88,7 @@ public class ProvisioningService {
             @Value("${docker.hub.token:}") String dockerHubToken,
             ProductUrlMappingRepository productUrlMappingRepository,
             @Lazy ProductShowcaseCaptureOrchestrator showcaseCaptureOrchestrator,
+            ProductPublicUrlService publicUrlService,
             @Value("${provisioning.external-url-scheme:http}") String externalUrlScheme,
             @Value("${provisioning.external-host:192.168.49.2}") String externalHost,
             @Value("${provisioning.frontend-node-port-start:32100}") int frontendNodePortStart,
@@ -105,6 +107,7 @@ public class ProvisioningService {
         this.dockerHubToken = dockerHubToken;
         this.productUrlMappingRepository = productUrlMappingRepository;
         this.showcaseCaptureOrchestrator = showcaseCaptureOrchestrator;
+        this.publicUrlService = publicUrlService;
         this.externalUrlScheme = externalUrlScheme;
         this.externalHost = externalHost;
         this.frontendNodePortStart = frontendNodePortStart;
@@ -187,9 +190,10 @@ public class ProvisioningService {
         }
 
         ProductUrlMapping mapping = mappingOpt.get();
-        String frontendUrl = mapping.getFrontendBaseUrl();
+        String inClusterFrontend = publicUrlService.toInClusterFrontendUrl(realmName, productId);
+        String frontendUrl = publicUrlService.toAbsoluteBrowserUrl(mapping);
         String backendUrl = mapping.getBackendBaseUrl();
-        boolean frontendReady = pingUrl(frontendUrl);
+        boolean frontendReady = pingUrl(inClusterFrontend);
         boolean backendReady = pingBackendHealth(backendUrl);
         boolean ready = frontendReady && backendReady;
 
@@ -1449,7 +1453,13 @@ public class ProvisioningService {
                 .backendBaseUrl(buildExternalUrl(backendNodePort))
                 .build();
 
-        return productUrlMappingRepository.save(mapping);
+        mapping = productUrlMappingRepository.save(mapping);
+        String browserUrl = publicUrlService.toAbsoluteBrowserUrl(mapping);
+        if (browserUrl != null && !browserUrl.isBlank()) {
+            mapping.setFrontendBaseUrl(browserUrl);
+            mapping = productUrlMappingRepository.save(mapping);
+        }
+        return mapping;
     }
 
     private int nextAvailablePort(int start, int end, Set<Integer> usedPorts) {

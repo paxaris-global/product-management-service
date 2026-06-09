@@ -120,8 +120,11 @@ public class ProductShowcaseService {
             catalog.add(toResponse(orphan, orphan.getProductName()));
         }
 
+        maybeAddPaxoPlatformProduct(catalog, realmFilter, listedKeys);
+
         catalog.sort(Comparator
-                .comparing((ProductShowcaseResponse item) -> item.capturedAt() == null)
+                .comparing((ProductShowcaseResponse item) -> "paxo".equalsIgnoreCase(item.productId()) ? 0 : 1)
+                .thenComparing((ProductShowcaseResponse item) -> item.capturedAt() == null)
                 .thenComparing(ProductShowcaseResponse::capturedAt, Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(ProductShowcaseResponse::productName, String.CASE_INSENSITIVE_ORDER));
 
@@ -175,7 +178,7 @@ public class ProductShowcaseService {
 
         String productName = resolveProductName(productId, request);
         String captureUrl = publicUrlService.toInClusterCaptureUrl(realmName, productId);
-        String browserUrl = publicUrlService.toBrowserUrl(mapping);
+        String browserUrl = publicUrlService.toAbsoluteBrowserUrl(mapping);
 
         log.info("Capturing product showcase for realm='{}', product='{}', captureUrl={}", realmName, productId, captureUrl);
         ProductShowcaseCaptureService.CaptureResult captured;
@@ -237,7 +240,7 @@ public class ProductShowcaseService {
         Instant capturedAt = captured != null ? captured.getCapturedAt() : null;
         Long id = captured != null ? captured.getId() : null;
 
-        String browserUrl = publicUrlService.toBrowserUrl(mapping);
+        String browserUrl = publicUrlService.toAbsoluteBrowserUrl(mapping);
         if (browserUrl == null || browserUrl.isBlank()) {
             browserUrl = publicUrlService.rewriteForBrowser(mapping.getFrontendBaseUrl());
         }
@@ -275,6 +278,38 @@ public class ProductShowcaseService {
                 throw new IllegalStateException("Interrupted while waiting for product readiness", ex);
             }
         }
+    }
+
+    private void maybeAddPaxoPlatformProduct(
+            List<ProductShowcaseResponse> catalog,
+            String realmFilter,
+            Set<String> listedKeys
+    ) {
+        if (!catalogSync.isPlatformFrontendDeployed("paxo-frontend")) {
+            return;
+        }
+        String realm = realmFilter != null && !realmFilter.isBlank()
+                ? canonicalRealm(realmFilter)
+                : catalog.stream()
+                        .map(ProductShowcaseResponse::realmName)
+                        .filter(r -> r != null && !r.isBlank())
+                        .findFirst()
+                        .orElse("paxarisglobal");
+        String key = catalogKey(realm, "paxo");
+        if (!listedKeys.add(key)) {
+            return;
+        }
+        String browserUrl = publicUrlService.toAbsoluteProxyBrowserUrl(realm, "paxo");
+        catalog.add(new ProductShowcaseResponse(
+                null,
+                realm,
+                "paxo",
+                "Paxo Platform",
+                browserUrl,
+                "Paxaris control plane — identity, provisioning, and GitOps from one UI.",
+                captureService.buildPlaceholderSvg("Paxo Platform", realm),
+                null
+        ));
     }
 
     private String resolveProductName(String productId, CaptureShowcaseRequest request) {
@@ -332,10 +367,10 @@ public class ProductShowcaseService {
 
         String browserUrl = urlMappingRepository
                 .findByRealmNameIgnoreCaseAndProductIdIgnoreCase(canonicalRealm, canonicalProductId)
-                .map(publicUrlService::toBrowserUrl)
+                .map(publicUrlService::toAbsoluteBrowserUrl)
                 .filter(url -> url != null && !url.isBlank())
                 .orElseGet(() -> publicUrlService.useProxyBrowserPaths()
-                        ? publicUrlService.toProxyBrowserPath(canonicalRealm, canonicalProductId)
+                        ? publicUrlService.toAbsoluteProxyBrowserUrl(canonicalRealm, canonicalProductId)
                         : publicUrlService.rewriteForBrowser(showcase.getFrontendUrl()));
 
         return new ProductShowcaseResponse(

@@ -2,6 +2,7 @@ package com.paxaris.product_management_service.service;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,5 +18,13 @@ class ProductFrontendCatalogRulesTest {
     void rejectsPlatformFrontends() {
         assertFalse(ProductFrontendCatalogRules.isProvisionedProductFrontendName("paxo-frontend"));
         assertFalse(ProductFrontendCatalogRules.isProvisionedProductFrontendName("python-frontend"));
+    }
+
+    @Test
+    void platformProductPaxoMapsToPaxoFrontendService() {
+        assertTrue(ProductFrontendCatalogRules.isPlatformProductId("paxo"));
+        assertEquals(
+                "paxo-frontend",
+                ProductFrontendCatalogRules.toFrontendServiceName("paxarisglobal", "paxo"));
     }
 }
