@@ -85,6 +85,17 @@ public class ProductPublicUrlService {
         return joinPublicBase(toProxyBrowserPath(realmName, productId));
     }
 
+    /** Platform catalog products (e.g. Paxo) run at the Paxo root — not under /product-ui/.../ */
+    public String toAbsoluteBrowserUrlForProduct(String realmName, String productId) {
+        if (ProductFrontendCatalogRules.isPlatformProductId(productId)) {
+            return joinPublicBase("/");
+        }
+        if (useProxyBrowserPaths()) {
+            return toAbsoluteProxyBrowserUrl(realmName, productId);
+        }
+        return null;
+    }
+
     public String toProxyBrowserPath(String realmName, String productId) {
         String realm = realmName == null ? "" : realmName.trim().toLowerCase(Locale.ROOT);
         String product = productId == null ? "" : productId.trim().toLowerCase(Locale.ROOT);

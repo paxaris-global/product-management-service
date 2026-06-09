@@ -299,7 +299,7 @@ public class ProductShowcaseService {
         if (!listedKeys.add(key)) {
             return;
         }
-        String browserUrl = publicUrlService.toAbsoluteProxyBrowserUrl(realm, "paxo");
+        String browserUrl = publicUrlService.toAbsoluteBrowserUrlForProduct(realm, "paxo");
         catalog.add(new ProductShowcaseResponse(
                 null,
                 realm,
