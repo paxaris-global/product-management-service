@@ -34,13 +34,17 @@ public class ProductShowcaseCaptureOrchestrator {
                 log.debug("Custom banner set for {} / {}, skipping auto-capture", realmName, productId);
                 return;
             }
+            if (existing.isPresent() && existing.get().isCustomDescription()) {
+                log.debug("Custom catalog description set for {} / {}, skipping auto-capture", realmName, productId);
+                return;
+            }
             if (existing.isPresent() && !isPlaceholderOnly(existing.get())) {
                 log.debug("Showcase already exists for {} / {}, skipping auto-capture", realmName, productId);
                 return;
             }
             log.info("Auto-capturing product showcase after deployment ready: realm='{}', product='{}'",
                     realmName, productId);
-            showcaseService.captureShowcase(realmName, productId, new CaptureShowcaseRequest(null));
+            showcaseService.captureShowcase(realmName, productId, new CaptureShowcaseRequest(null, null));
         } catch (Exception ex) {
             log.warn("Auto showcase capture failed for {} / {}: {}", realmName, productId, ex.getMessage());
         } finally {

@@ -59,6 +59,11 @@ public class ProductShowcase {
     @Builder.Default
     private boolean customBanner = false;
 
+    /** When true, catalog description was provided at create-product time and must not be overwritten by capture. */
+    @Column(name = "custom_description", nullable = false)
+    @Builder.Default
+    private boolean customDescription = false;
+
     @Column(name = "captured_at", nullable = false)
     private Instant capturedAt;
 }

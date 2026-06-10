@@ -154,11 +154,60 @@ public class ProductShowcaseService {
             String realmName,
             String productId,
             MultipartFile bannerImage,
-            String productName
+            String productName,
+            String description
     ) throws java.io.IOException {
         String dataUrl = bannerService.toDataUrl(bannerImage);
-        ProductShowcase saved = bannerService.upsertBannerShowcase(realmName, productId, dataUrl, productName);
+        ProductShowcase saved = bannerService.upsertBannerShowcase(
+                realmName, productId, dataUrl, productName, description
+        );
         log.info("Saved custom banner for realm='{}', product='{}'", realmName, productId);
+        return toResponse(saved, saved.getProductName());
+    }
+
+    @Transactional
+    public ProductShowcaseResponse saveCatalogDescription(
+            String realmName,
+            String productId,
+            String description
+    ) {
+        String catalogDescription = requireCatalogDescription(description);
+
+        ProductUrlMapping mapping = urlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        realmName, productId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Product URLs are not allocated for realm='" + realmName + "', product='" + productId + "'"
+                ));
+
+        String displayName = humanizeProductId(mapping.getProductId());
+        String browserUrl = publicUrlService.toAbsoluteBrowserUrl(mapping);
+        if (browserUrl == null || browserUrl.isBlank()) {
+            browserUrl = publicUrlService.rewriteForBrowser(mapping.getFrontendBaseUrl());
+        }
+
+        ProductShowcase showcase = showcaseRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
+                        mapping.getRealmName(), mapping.getProductId())
+                .orElseGet(ProductShowcase::new);
+
+        showcase.setRealmName(mapping.getRealmName());
+        showcase.setProductId(mapping.getProductId());
+        if (showcase.getProductName() == null || showcase.getProductName().isBlank()) {
+            showcase.setProductName(displayName);
+        }
+        if (showcase.getFrontendUrl() == null || showcase.getFrontendUrl().isBlank()) {
+            showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
+        }
+        if (showcase.getPreviewImage() == null || showcase.getPreviewImage().isBlank()) {
+            showcase.setPreviewImage(captureService.buildPlaceholderSvg(displayName, mapping.getRealmName()));
+        }
+        showcase.setDescription(catalogDescription);
+        showcase.setCustomDescription(true);
+        if (showcase.getCapturedAt() == null) {
+            showcase.setCapturedAt(Instant.now());
+        }
+
+        ProductShowcase saved = showcaseRepository.save(showcase);
+        log.info("Saved catalog description for realm='{}', product='{}'", realmName, productId);
         return toResponse(saved, saved.getProductName());
     }
 
@@ -200,13 +249,26 @@ public class ProductShowcaseService {
                 .orElseGet(ProductShowcase::new);
 
         boolean preserveBanner = ProductBannerService.hasCustomBanner(showcase);
+        boolean preserveDescription = showcase.isCustomDescription();
         String existingPreview = showcase.getPreviewImage();
+        String existingDescription = showcase.getDescription();
+        String requestedDescription = request != null
+                ? ProductBannerService.normalizeDescription(request.description())
+                : null;
 
         showcase.setRealmName(mapping.getRealmName());
         showcase.setProductId(mapping.getProductId());
         showcase.setProductName(displayName);
         showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
-        showcase.setDescription(captured.description());
+        if (requestedDescription != null) {
+            showcase.setDescription(requestedDescription);
+            showcase.setCustomDescription(true);
+        } else if (preserveDescription && existingDescription != null && !existingDescription.isBlank()) {
+            showcase.setDescription(existingDescription);
+            showcase.setCustomDescription(true);
+        } else {
+            showcase.setDescription(captured.description());
+        }
         if (preserveBanner && existingPreview != null && !existingPreview.isBlank()) {
             showcase.setPreviewImage(existingPreview);
             showcase.setCustomBanner(true);
@@ -317,6 +379,17 @@ public class ProductShowcaseService {
             return request.productName().trim();
         }
         return humanizeProductId(productId);
+    }
+
+    private static String requireCatalogDescription(String description) {
+        String normalized = ProductBannerService.normalizeDescription(description);
+        if (normalized == null || normalized.length() < 10) {
+            throw new IllegalArgumentException("Catalog description is required and must be at least 10 characters");
+        }
+        if (normalized.length() > 2000) {
+            throw new IllegalArgumentException("Catalog description must be at most 2000 characters");
+        }
+        return normalized;
     }
 
     private static String humanizeProductId(String productId) {

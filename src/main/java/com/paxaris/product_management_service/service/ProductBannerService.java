@@ -65,7 +65,8 @@ public class ProductBannerService {
             String realmName,
             String productId,
             String dataUrl,
-            String productName
+            String productName,
+            String description
     ) {
         ProductUrlMapping mapping = urlMappingRepository.findByRealmNameIgnoreCaseAndProductIdIgnoreCase(
                         realmName, productId)
@@ -92,7 +93,12 @@ public class ProductBannerService {
         showcase.setFrontendUrl(browserUrl != null ? browserUrl : mapping.getFrontendBaseUrl());
         showcase.setPreviewImage(dataUrl);
         showcase.setCustomBanner(true);
-        if (showcase.getDescription() == null || showcase.getDescription().isBlank()) {
+        String catalogDescription = normalizeDescription(description);
+        if (catalogDescription != null) {
+            showcase.setDescription(catalogDescription);
+            showcase.setCustomDescription(true);
+        } else if (!showcase.isCustomDescription()
+                && (showcase.getDescription() == null || showcase.getDescription().isBlank())) {
             showcase.setDescription(displayName + " — provisioned product (realm " + mapping.getRealmName() + ").");
         }
         showcase.setCapturedAt(Instant.now());
@@ -102,6 +108,13 @@ public class ProductBannerService {
 
     public static boolean hasCustomBanner(ProductShowcase showcase) {
         return showcase != null && showcase.isCustomBanner();
+    }
+
+    static String normalizeDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+        return description.trim();
     }
 
     private static String normalizeContentType(String raw) {

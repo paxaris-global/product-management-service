@@ -1,6 +1,7 @@
 package com.paxaris.product_management_service.controller;
 
 import com.paxaris.product_management_service.dto.CaptureShowcaseRequest;
+import com.paxaris.product_management_service.dto.CatalogDescriptionRequest;
 import com.paxaris.product_management_service.dto.ProductShowcaseResponse;
 import com.paxaris.product_management_service.service.ProductShowcaseService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -64,6 +65,34 @@ public class ProductShowcaseController {
                 ));
     }
 
+    @PutMapping("/{realmName}/{productId}/description")
+    @Operation(
+            summary = "Save catalog card description",
+            description = "Stores the user-provided description shown on the home/products catalog card"
+    )
+    public ResponseEntity<ProductShowcaseResponse> saveCatalogDescription(
+            @PathVariable String realmName,
+            @PathVariable String productId,
+            @RequestBody CatalogDescriptionRequest request
+    ) {
+        try {
+            return ResponseEntity.ok(showcaseService.saveCatalogDescription(
+                    realmName,
+                    productId,
+                    request != null ? request.description() : null
+            ));
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
+        } catch (Exception ex) {
+            log.error("Failed to save catalog description for {} / {}: {}", realmName, productId, ex.getMessage(), ex);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Failed to save catalog description: " + ex.getMessage(),
+                    ex
+            );
+        }
+    }
+
     @PostMapping(
             value = "/{realmName}/{productId}/banner",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE
@@ -76,10 +105,13 @@ public class ProductShowcaseController {
             @PathVariable String realmName,
             @PathVariable String productId,
             @RequestParam("bannerImage") MultipartFile bannerImage,
-            @RequestParam(value = "productName", required = false) String productName
+            @RequestParam(value = "productName", required = false) String productName,
+            @RequestParam(value = "description", required = false) String description
     ) {
         try {
-            return ResponseEntity.ok(showcaseService.uploadBanner(realmName, productId, bannerImage, productName));
+            return ResponseEntity.ok(showcaseService.uploadBanner(
+                    realmName, productId, bannerImage, productName, description
+            ));
         } catch (IllegalArgumentException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage(), ex);
         } catch (Exception ex) {
