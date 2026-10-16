@@ -191,10 +191,19 @@ public class ProvisioningService {
 
         ProductUrlMapping mapping = mappingOpt.get();
         String inClusterFrontend = publicUrlService.toInClusterFrontendUrl(realmName, productId);
+        String inClusterBackend = publicUrlService.toInClusterBackendUrl(realmName, productId);
         String frontendUrl = publicUrlService.toAbsoluteBrowserUrl(mapping);
         String backendUrl = mapping.getBackendBaseUrl();
-        boolean frontendReady = pingUrl(inClusterFrontend);
-        boolean backendReady = pingBackendHealth(backendUrl);
+        String frontendDeploy = ProductFrontendCatalogRules.toFrontendServiceName(realmName, productId);
+        String backendDeploy = ProductFrontendCatalogRules.toBackendServiceName(realmName, productId);
+        boolean frontendReady = pingUrl(inClusterFrontend)
+                || (mapping.getFrontendNodePort() != null && pingUrl(buildExternalUrl(mapping.getFrontendNodePort())))
+                || isKubernetesDeploymentReady(frontendDeploy);
+        // Prefer in-cluster Service DNS; fall back to NodePort URL; then Deployment readyReplicas
+        // (needed for hybrid local jars that cannot reach Minikube NodePorts / cluster DNS).
+        boolean backendReady = pingBackendHealth(inClusterBackend)
+                || pingBackendHealth(backendUrl)
+                || isKubernetesDeploymentReady(backendDeploy);
         boolean ready = frontendReady && backendReady;
 
         int progressPercent = 45;
@@ -290,16 +299,21 @@ public class ProvisioningService {
                         .build();
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 int code = response.statusCode();
-                if (code >= 200 && code < 300) {
-                    String body = response.body() == null ? "" : response.body().toLowerCase(Locale.ROOT);
-                    if (url.contains("actuator") || url.contains("health")) {
-                        if (body.contains("\"status\":\"up\"") || body.contains("status\":\"up")
-                                || body.contains("ok")) {
-                            return true;
-                        }
-                    } else {
+                String body = response.body() == null ? "" : response.body().toLowerCase(Locale.ROOT);
+                boolean healthPath = url.contains("actuator") || url.endsWith("/health");
+                if (healthPath) {
+                    if (code >= 200 && code < 300
+                            && (body.contains("\"status\":\"up\"")
+                            || body.contains("status\":\"up")
+                            || body.contains("\"ok\"")
+                            || body.equals("ok"))) {
                         return true;
                     }
+                    continue;
+                }
+                // Auth-protected apps often have no public actuator; 2xx/3xx/401/403 means the pod is up.
+                if ((code >= 200 && code < 400) || code == 401 || code == 403) {
+                    return true;
                 }
             } catch (Exception ex) {
                 log.debug("Backend health check failed for {}: {}", url, ex.getMessage());
@@ -501,12 +515,15 @@ public class ProvisioningService {
                                 FROM node:20-alpine AS builder
                                 WORKDIR /app
                                 COPY package*.json ./
-                                RUN npm ci
+                                RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
                                 COPY . .
-                                RUN npm run build
+                                RUN npm run build \\
+                                    && mkdir -p /out \\
+                                    && if [ -f dist/index.html ]; then cp -R dist/. /out/; \\
+                                       else cp -R dist/*/. /out/ 2>/dev/null || cp -R dist/. /out/; fi
 
                                 FROM nginx:1.27-alpine
-                                COPY --from=builder /app/dist /usr/share/nginx/html
+                                COPY --from=builder /out /usr/share/nginx/html
                                 EXPOSE 80
                                 CMD [\"nginx\",\"-g\",\"daemon off;\"]
                                 """;
@@ -716,6 +733,12 @@ public class ProvisioningService {
             if (dockerHubUsername == null || dockerHubUsername.isBlank()
                     || dockerHubToken == null || dockerHubToken.isBlank()) {
                 throw new IllegalStateException("Docker Hub credentials are missing (DOCKER_USERNAME / DOCKER_PASSWORD)");
+            }
+            if (isPlaceholderDockerCredential(dockerHubUsername) || isPlaceholderDockerCredential(dockerHubToken)) {
+                throw new IllegalStateException(
+                        "Docker Hub credentials are still placeholders (DOCKER_USERNAME / DOCKER_PASSWORD). "
+                                + "Set a real Docker Hub username and access token in paxo/.env (and restart product-management-service) "
+                                + "so GitHub Actions can push images; otherwise ArgoCD pods stay in ImagePullBackOff.");
             }
             Map<String, String> variables = new LinkedHashMap<>();
             variables.put("DOCKERHUB_USERNAME", dockerHubUsername);
@@ -1529,7 +1552,66 @@ public class ProvisioningService {
         return content
                 .replaceAll("(?i)http://backend:8081", upstream)
                 .replaceAll("(?i)http://backend:8080", upstream)
-                .replaceAll("(?i)(proxy_pass\\s+)http://backend(\\s*;)", "$1" + upstream + "$2");
+                .replaceAll("(?i)(proxy_pass\\s+)http://backend(\\s*;)", "$1" + upstream + "$2")
+                // Template ZIPs often still point at another product's K8s backend Service.
+                .replaceAll("(?i)http://[a-z0-9-]+-backend:8080", upstream)
+                .replaceAll("(?i)(proxy_pass\\s+)http://[a-z0-9-]+-backend:8080/", "$1" + upstream + "/");
+    }
+
+    private static boolean isPlaceholderDockerCredential(String value) {
+        if (value == null) {
+            return true;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) {
+            return true;
+        }
+        return normalized.startsWith("your-")
+                || normalized.equals("changeme")
+                || normalized.equals("password")
+                || normalized.equals("xxx")
+                || normalized.contains("placeholder")
+                || normalized.contains("example");
+    }
+
+    /**
+     * True when the Deployment has readyReplicas &gt; 0.
+     * Uses {@code kubectl} so hybrid local runs (jar on laptop + Minikube) work without cluster DNS.
+     */
+    private boolean isKubernetesDeploymentReady(String deploymentName) {
+        if (deploymentName == null || deploymentName.isBlank()) {
+            return false;
+        }
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "kubectl",
+                    "-n",
+                    "default",
+                    "get",
+                    "deploy",
+                    deploymentName.trim(),
+                    "-o",
+                    "jsonpath={.status.readyReplicas}"
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            boolean finished = process.waitFor(8, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return false;
+            }
+            if (process.exitValue() != 0) {
+                return false;
+            }
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            if (output.isBlank()) {
+                return false;
+            }
+            return Integer.parseInt(output) > 0;
+        } catch (Exception ex) {
+            log.debug("kubectl readiness check failed for {}: {}", deploymentName, ex.getMessage());
+            return false;
+        }
     }
 
     private String toK8sName(String raw, int maxLen) {
@@ -1563,7 +1645,10 @@ public class ProvisioningService {
                 .replaceAll("-+", "-")
                 .replaceAll("^-+", "")
                 .replaceAll("-+$", "");
-        return "devopspaxarisglobalrepo/" + normalizedRepo;
+        String org = (dockerHubUsername == null || dockerHubUsername.isBlank())
+                ? "paxarisdocker"
+                : dockerHubUsername.trim().toLowerCase(Locale.ROOT);
+        return org + "/" + normalizedRepo;
     }
 
     private void updatePaxoRepo(String fileName, String content) throws Exception {

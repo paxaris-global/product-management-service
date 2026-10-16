@@ -13,6 +13,7 @@ import java.util.regex.Pattern;
 final class ProductFrontendCatalogRules {
 
     private static final String FRONTEND_SUFFIX = "-frontend";
+    private static final String BACKEND_SUFFIX = "-backend";
     private static final Pattern ADMIN_SEGMENT = Pattern.compile("-admin-");
 
     /** Platform UIs exposed as catalog products via /product-ui/{realm}/{productId}/ */
@@ -51,6 +52,12 @@ final class ProductFrontendCatalogRules {
             return platformService;
         }
         return realm + "-admin-" + product + FRONTEND_SUFFIX;
+    }
+
+    static String toBackendServiceName(String realmName, String productId) {
+        String realm = realmName == null ? "" : realmName.trim().toLowerCase(Locale.ROOT);
+        String product = productId == null ? "" : productId.trim().toLowerCase(Locale.ROOT);
+        return realm + "-admin-" + product + BACKEND_SUFFIX;
     }
 
     static Optional<RealmProductRef> parseRealmAndProduct(String frontendDeploymentName) {

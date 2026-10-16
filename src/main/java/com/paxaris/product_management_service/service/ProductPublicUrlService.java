@@ -116,6 +116,12 @@ public class ProductPublicUrlService {
         return "http://" + service + "." + kubernetesNamespace.trim() + ".svc.cluster.local/";
     }
 
+    public String toInClusterBackendUrl(String realmName, String productId) {
+        String service = ProductFrontendCatalogRules.toBackendServiceName(
+                realmName.trim(), productId.trim());
+        return "http://" + service + "." + kubernetesNamespace.trim() + ".svc.cluster.local:8080";
+    }
+
     public String rewriteForBrowser(String url) {
         if (url == null || url.isBlank()) {
             return url;
