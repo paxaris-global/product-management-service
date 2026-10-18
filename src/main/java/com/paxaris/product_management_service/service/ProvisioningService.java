@@ -532,57 +532,44 @@ public class ProvisioningService {
         private String generateRepositoryK8Manifest(String repoName, int containerPort, Integer nodePort) {
             String k8Name = toK8sName(repoName, 63);
             String imageRepo = generateImageRepository(repoName);
-            String nodePortBlock = nodePort != null ? "            nodePort: " + nodePort + "\n" : "";
+            String nodePortLine = nodePort != null ? "      nodePort: " + nodePort + "\n" : "";
             String serviceType = nodePort != null ? "NodePort" : "ClusterIP";
-                return """
-                                apiVersion: apps/v1
-                                kind: Deployment
-                                metadata:
-                                    name: %s
-                                spec:
-                                    replicas: 1
-                                    selector:
-                                        matchLabels:
-                                            app: %s
-                                    template:
-                                        metadata:
-                                            labels:
-                                                app: %s
-                                        spec:
-                                            imagePullSecrets:
-                                                - name: dockerhub-secret
-                                            containers:
-                                                - name: %s
-                                                    image: \"%s:latest\"
-                                                    imagePullPolicy: Always
-                                                    ports:
-                                                        - containerPort: %d
-                                ---
-                                apiVersion: v1
-                                kind: Service
-                                metadata:
-                                    name: %s
-                                spec:
-                                    selector:
-                                        app: %s
-                                    ports:
-                                        - port: %d
-                                            targetPort: %d
-%s                                    type: %s
-                                """.formatted(
-                                    k8Name,
-                                    k8Name,
-                                    k8Name,
-                                    k8Name,
-                                    imageRepo,
-                                    containerPort,
-                                    k8Name,
-                                    k8Name,
-                                    containerPort,
-                                    containerPort,
-                                    nodePortBlock,
-                                    serviceType
-                                );
+            // Use explicit newlines (not a deeply indented text block) so Argo can parse the YAML.
+            return "apiVersion: apps/v1\n"
+                    + "kind: Deployment\n"
+                    + "metadata:\n"
+                    + "  name: " + k8Name + "\n"
+                    + "spec:\n"
+                    + "  replicas: 1\n"
+                    + "  selector:\n"
+                    + "    matchLabels:\n"
+                    + "      app: " + k8Name + "\n"
+                    + "  template:\n"
+                    + "    metadata:\n"
+                    + "      labels:\n"
+                    + "        app: " + k8Name + "\n"
+                    + "    spec:\n"
+                    + "      imagePullSecrets:\n"
+                    + "        - name: dockerhub-secret\n"
+                    + "      containers:\n"
+                    + "        - name: " + k8Name + "\n"
+                    + "          image: \"" + imageRepo + ":latest\"\n"
+                    + "          imagePullPolicy: Always\n"
+                    + "          ports:\n"
+                    + "            - containerPort: " + containerPort + "\n"
+                    + "---\n"
+                    + "apiVersion: v1\n"
+                    + "kind: Service\n"
+                    + "metadata:\n"
+                    + "  name: " + k8Name + "\n"
+                    + "spec:\n"
+                    + "  selector:\n"
+                    + "    app: " + k8Name + "\n"
+                    + "  ports:\n"
+                    + "    - port: " + containerPort + "\n"
+                    + "      targetPort: " + containerPort + "\n"
+                    + nodePortLine
+                    + "  type: " + serviceType + "\n";
         }
 
         private String generateRepositoryWorkflow(String repoName, String buildContextPath, String dockerfilePath) {
@@ -640,7 +627,8 @@ public class ProvisioningService {
 
                                             - name: Update k8 image tag
                                               run: |
-                                                    sed -E -i.bak "s|^([[:space:]]*)image:[[:space:]].*|\\1image: ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}|" k8/deployment.yaml
+                                                    # Only rewrite the app image line — never initContainers (postgres:16-alpine / pg_isready).
+                                                    sed -E -i.bak "s|^([[:space:]]*)image:[[:space:]]*.*${{ steps.vars.outputs.image_repo }}[[:space:]]*.*$|\\1image: ${{ steps.vars.outputs.image_repo }}:${{ steps.vars.outputs.image_tag }}|" k8/deployment.yaml
                                                     rm -f k8/deployment.yaml.bak
 
                                             - name: Commit and push manifest changes

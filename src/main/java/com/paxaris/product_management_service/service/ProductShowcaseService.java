@@ -61,13 +61,12 @@ public class ProductShowcaseService {
 
     /**
      * Lists every provisioned product (URL mapping), merged with captured showcase data when present.
-     * Discovers running {@code *-frontend} services on Kubernetes and triggers background capture.
+     * <p>
+     * Home-page path is DB-only and must stay fast. Cluster discovery (kubectl / in-cluster API) is
+     * available via {@link #syncCatalogFromCluster()} and must not block this list.
      */
     @Transactional
     public List<ProductShowcaseResponse> listShowcases(String realmName) {
-        catalogSync.syncDeployedProductsFromKubernetes();
-        Set<String> liveFrontends = catalogSync.liveProductFrontendDeploymentNames();
-
         List<ProductUrlMapping> mappings = urlMappingRepository.findAllByOrderByRealmNameAscProductIdAsc();
         String realmFilter = realmName == null || realmName.isBlank() ? null : realmName.trim();
 
@@ -89,7 +88,7 @@ public class ProductShowcaseService {
             if (realmFilter != null && !realmFilter.equalsIgnoreCase(mapping.getRealmName())) {
                 continue;
             }
-            if (!catalogSync.isLiveCatalogProduct(mapping.getRealmName(), mapping.getProductId(), liveFrontends)) {
+            if (!catalogSync.isCatalogProduct(mapping.getRealmName(), mapping.getProductId())) {
                 continue;
             }
             String key = catalogKey(mapping.getRealmName(), mapping.getProductId());
@@ -110,7 +109,7 @@ public class ProductShowcaseService {
             if (realmFilter != null && !realmFilter.equalsIgnoreCase(orphan.getRealmName())) {
                 continue;
             }
-            if (!catalogSync.isLiveCatalogProduct(orphan.getRealmName(), orphan.getProductId(), liveFrontends)) {
+            if (!catalogSync.isCatalogProduct(orphan.getRealmName(), orphan.getProductId())) {
                 continue;
             }
             String key = catalogKey(orphan.getRealmName(), orphan.getProductId());

@@ -218,55 +218,117 @@ public class DeployedProductCatalogSyncService {
     private List<DiscoveredFrontend> discoverProductFrontendDeployments(Map<String, Integer> serviceNodePorts) {
         try {
             String token = readServiceAccountToken();
-            if (token == null) {
-                log.debug("Catalog sync: no Kubernetes service account token; skipping cluster discovery");
-                return List.of();
+            JsonNode items;
+            if (token != null) {
+                String url = "https://kubernetes.default.svc/apis/apps/v1/namespaces/"
+                        + kubernetesNamespace + "/deployments";
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofSeconds(15))
+                        .header("Authorization", "Bearer " + token)
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build();
+
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    log.warn("Catalog sync: Kubernetes deployments API returned HTTP {}", response.statusCode());
+                    return discoverProductFrontendDeploymentsViaKubectl(serviceNodePorts);
+                }
+                items = objectMapper.readTree(response.body()).path("items");
+            } else {
+                // Hybrid local (Compose PMS + Minikube): no in-cluster SA — use kubectl.
+                log.debug("Catalog sync: no service account token; discovering via kubectl");
+                return discoverProductFrontendDeploymentsViaKubectl(serviceNodePorts);
             }
 
-            String url = "https://kubernetes.default.svc/apis/apps/v1/namespaces/"
-                    + kubernetesNamespace + "/deployments";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Authorization", "Bearer " + token)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                log.warn("Catalog sync: Kubernetes deployments API returned HTTP {}", response.statusCode());
-                return List.of();
-            }
-
-            JsonNode root = objectMapper.readTree(response.body());
-            JsonNode items = root.path("items");
             if (!items.isArray()) {
                 return List.of();
             }
 
             List<DiscoveredFrontend> result = new ArrayList<>();
             for (JsonNode item : items) {
-                String name = item.path("metadata").path("name").asText(null);
-                if (!ProductFrontendCatalogRules.isProvisionedProductFrontendName(name)) {
-                    continue;
+                DiscoveredFrontend frontend = toDiscoveredFrontend(item, serviceNodePorts);
+                if (frontend != null) {
+                    result.add(frontend);
                 }
-                if (!hasFrontendContainerPort(item)) {
-                    log.debug("Catalog sync: skip {} (not a UI frontend deployment)", name);
-                    continue;
-                }
-
-                Integer nodePort = serviceNodePorts.get(name);
-                String frontendUrl = nodePort != null && nodePort > 0
-                        ? buildExternalUrl(nodePort)
-                        : clusterServiceUrl(name);
-                result.add(new DiscoveredFrontend(name, nodePort, frontendUrl));
             }
             return result;
         } catch (Exception ex) {
             log.warn("Catalog sync: Kubernetes discovery failed: {}", ex.getMessage());
+            return discoverProductFrontendDeploymentsViaKubectl(serviceNodePorts);
+        }
+    }
+
+    /**
+     * Fallback for hybrid local stacks where PMS runs outside the cluster (no SA token / no
+     * kubernetes.default.svc). Mirrors {@link ProvisioningService#isKubernetesDeploymentReady}.
+     */
+    private List<DiscoveredFrontend> discoverProductFrontendDeploymentsViaKubectl(
+            Map<String, Integer> serviceNodePorts
+    ) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "kubectl",
+                    "-n",
+                    kubernetesNamespace,
+                    "get",
+                    "deploy",
+                    "-o",
+                    "json"
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            boolean finished = process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("Catalog sync: kubectl get deploy timed out");
+                return List.of();
+            }
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            if (process.exitValue() != 0) {
+                log.warn("Catalog sync: kubectl get deploy failed: {}", output.trim());
+                return List.of();
+            }
+            JsonNode items = objectMapper.readTree(output).path("items");
+            if (!items.isArray()) {
+                return List.of();
+            }
+            List<DiscoveredFrontend> result = new ArrayList<>();
+            for (JsonNode item : items) {
+                // Only include ready frontends so the home catalog matches live pods.
+                if (item.path("status").path("readyReplicas").asInt(0) <= 0) {
+                    continue;
+                }
+                DiscoveredFrontend frontend = toDiscoveredFrontend(item, serviceNodePorts);
+                if (frontend != null) {
+                    result.add(frontend);
+                }
+            }
+            if (!result.isEmpty()) {
+                log.info("Catalog sync: kubectl discovered {} live product frontend(s)", result.size());
+            }
+            return result;
+        } catch (Exception ex) {
+            log.warn("Catalog sync: kubectl discovery failed: {}", ex.getMessage());
             return List.of();
         }
+    }
+
+    private DiscoveredFrontend toDiscoveredFrontend(JsonNode item, Map<String, Integer> serviceNodePorts) {
+        String name = item.path("metadata").path("name").asText(null);
+        if (!ProductFrontendCatalogRules.isProvisionedProductFrontendName(name)) {
+            return null;
+        }
+        if (!hasFrontendContainerPort(item)) {
+            log.debug("Catalog sync: skip {} (not a UI frontend deployment)", name);
+            return null;
+        }
+        Integer nodePort = serviceNodePorts.get(name);
+        String frontendUrl = nodePort != null && nodePort > 0
+                ? buildExternalUrl(nodePort)
+                : clusterServiceUrl(name);
+        return new DiscoveredFrontend(name, nodePort, frontendUrl);
     }
 
     private boolean hasFrontendContainerPort(JsonNode deployment) {
@@ -292,43 +354,86 @@ public class DeployedProductCatalogSyncService {
         Map<String, Integer> nodePorts = new HashMap<>();
         try {
             String token = readServiceAccountToken();
-            if (token == null) {
-                return nodePorts;
+            JsonNode items;
+            if (token != null) {
+                String url = "https://kubernetes.default.svc/api/v1/namespaces/"
+                        + kubernetesNamespace + "/services";
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(Duration.ofSeconds(15))
+                        .header("Authorization", "Bearer " + token)
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build();
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                    return loadServiceNodePortsViaKubectl();
+                }
+                items = objectMapper.readTree(response.body()).path("items");
+            } else {
+                return loadServiceNodePortsViaKubectl();
             }
-            String url = "https://kubernetes.default.svc/api/v1/namespaces/"
-                    + kubernetesNamespace + "/services";
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Authorization", "Bearer " + token)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return nodePorts;
-            }
-            JsonNode items = objectMapper.readTree(response.body()).path("items");
             if (!items.isArray()) {
                 return nodePorts;
             }
             for (JsonNode item : items) {
-                String name = item.path("metadata").path("name").asText(null);
-                if (name == null || !ProductFrontendCatalogRules.isProvisionedProductFrontendName(name)) {
-                    continue;
-                }
-                JsonNode ports = item.path("spec").path("ports");
-                if (ports.isArray() && !ports.isEmpty()) {
-                    int np = ports.get(0).path("nodePort").asInt(0);
-                    if (np > 0) {
-                        nodePorts.put(name, np);
-                    }
-                }
+                putNodePort(nodePorts, item);
             }
         } catch (Exception ex) {
             log.debug("Catalog sync: could not load service node ports: {}", ex.getMessage());
+            return loadServiceNodePortsViaKubectl();
         }
         return nodePorts;
+    }
+
+    private Map<String, Integer> loadServiceNodePortsViaKubectl() {
+        Map<String, Integer> nodePorts = new HashMap<>();
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "kubectl",
+                    "-n",
+                    kubernetesNamespace,
+                    "get",
+                    "svc",
+                    "-o",
+                    "json"
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+            boolean finished = process.waitFor(15, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return nodePorts;
+            }
+            String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            if (process.exitValue() != 0) {
+                return nodePorts;
+            }
+            JsonNode items = objectMapper.readTree(output).path("items");
+            if (!items.isArray()) {
+                return nodePorts;
+            }
+            for (JsonNode item : items) {
+                putNodePort(nodePorts, item);
+            }
+        } catch (Exception ex) {
+            log.debug("Catalog sync: kubectl service node ports failed: {}", ex.getMessage());
+        }
+        return nodePorts;
+    }
+
+    private void putNodePort(Map<String, Integer> nodePorts, JsonNode item) {
+        String name = item.path("metadata").path("name").asText(null);
+        if (name == null || !ProductFrontendCatalogRules.isProvisionedProductFrontendName(name)) {
+            return;
+        }
+        JsonNode ports = item.path("spec").path("ports");
+        if (ports.isArray() && !ports.isEmpty()) {
+            int np = ports.get(0).path("nodePort").asInt(0);
+            if (np > 0) {
+                nodePorts.put(name, np);
+            }
+        }
     }
 
     private String readServiceAccountToken() {
